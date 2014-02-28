@@ -33,6 +33,12 @@ class AFI (int):
 	def pack (self):
 		return pack('!H',self)
 
+	@staticmethod
+	def value (name):
+		if name == "ipv4": return AFI.ipv4
+		if name == "ipv6": return AFI.ipv6
+		return None
+
 # =================================================================== SAFI
 
 # http://www.iana.org/assignments/safi-namespace
@@ -56,8 +62,8 @@ class SAFI (int):
 	mpls_vpn = 128              # [RFC4364]
 #	mcast_bgp_mpls_vpn = 129    # [RFC2547]
 #	rt = 132                    # [RFC4684]
-	flow_ipv4 = 133             # [RFC5575]
-	flow_vpnv4 = 134            # [RFC5575]
+	flow_ip = 133               # [RFC5575]
+	flow_vpn = 134              # [RFC5575]
 #
 #	vpn_ad = 140                # [draft-ietf-l3vpn-bgpvpn-auto]
 #
@@ -70,8 +76,8 @@ class SAFI (int):
 		if self == 0x02: return "multicast"
 		if self == 0x04: return "nlri-mpls"
 		if self == 0x80: return "mpls-vpn"
-		if self == 0x85: return "flow-ipv4"
-		if self == 0x86: return "flow-vpnv4"
+		if self == 0x85: return "flow"
+		if self == 0x86: return "flow-vpn"
 		return "unknown safi"
 
 	def __str__ (self):
@@ -84,8 +90,17 @@ class SAFI (int):
 		return self in (self.nlri_mpls,self.mpls_vpn)
 
 	def has_rd (self):
-		return self in (self.mpls_vpn,)
+		return self in (self.mpls_vpn,)  # technically self.flow_vpn has an RD but it is not an NLRI
 
+	@staticmethod
+	def value (name):
+		if name == "unicast"  : return 0x01
+		if name == "multicast": return 0x02
+		if name == "nlri-mpls": return 0x04
+		if name == "mpls-vpn" : return 0x80
+		if name == "flow"     : return 0x85
+		if name == "flow-vpn" : return 0x86
+		return None
 
 def known_families ():
 	# it can not be a generator
@@ -94,7 +109,10 @@ def known_families ():
 	families.append((AFI(AFI.ipv4),SAFI(SAFI.multicast)))
 	families.append((AFI(AFI.ipv4),SAFI(SAFI.nlri_mpls)))
 	families.append((AFI(AFI.ipv4),SAFI(SAFI.mpls_vpn)))
-	families.append((AFI(AFI.ipv4),SAFI(SAFI.flow_ipv4)))
+	families.append((AFI(AFI.ipv4),SAFI(SAFI.flow_ip)))
+	families.append((AFI(AFI.ipv4),SAFI(SAFI.flow_vpn)))
 	families.append((AFI(AFI.ipv6),SAFI(SAFI.unicast)))
 	families.append((AFI(AFI.ipv6),SAFI(SAFI.mpls_vpn)))
+	families.append((AFI(AFI.ipv6),SAFI(SAFI.flow_ip)))
+	families.append((AFI(AFI.ipv6),SAFI(SAFI.flow_vpn)))
 	return families

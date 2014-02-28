@@ -6,149 +6,189 @@ Created by Thomas Mangin on 2009-11-05.
 Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 """
 
-from copy import deepcopy
-
 from exabgp.protocol.family import AFI,SAFI
-from exabgp.bgp.message import Message,prefix,defix
 
+from exabgp.bgp.message import Message,prefix
+from exabgp.bgp.message.direction import OUT
 from exabgp.bgp.message.update.attribute.mprnlri import MPRNLRI
 from exabgp.bgp.message.update.attribute.mpurnlri import MPURNLRI
-from exabgp.bgp.message.update.attribute.id import AttributeID
-from exabgp.bgp.message.update.attribute.attributes import Attributes
-from exabgp.bgp.message.update.nlri.route import RouteBGP,BGPNLRI,routeFactory
+
 from exabgp.bgp.message.notification import Notify
 
 # =================================================================== Update
 
-class Update (Message):
-	TYPE = chr(0x02)
+# +-----------------------------------------------------+
+# |   Withdrawn Routes Length (2 octets)                |
+# +-----------------------------------------------------+
+# |   Withdrawn Routes (variable)                       |
+# +-----------------------------------------------------+
+# |   Total Path Attribute Length (2 octets)            |
+# +-----------------------------------------------------+
+# |   Path Attributes (variable)                        |
+# +-----------------------------------------------------+
+# |   Network Layer Reachability Information (variable) |
+# +-----------------------------------------------------+
 
-	def new (self,routes):
-		self.routes = routes
-		if routes:
-			self.afi = routes[0].nlri.afi
-			self.safi = routes[0].nlri.safi
-			self.attributes = self.routes[0].attributes
-		return self
+# Withdrawn Routes:
+
+# +---------------------------+
+# |   Length (1 octet)        |
+# +---------------------------+
+# |   Prefix (variable)       |
+# +---------------------------+
+
+
+class Update (Message):
+	TYPE = chr(Message.Type.UPDATE)
+
+	def __init__ (self,nlris,attributes):
+		self.nlris = nlris
+		self.attributes = attributes
+
+	# message not implemented we should use messages below.
+
+	def __str__ (self):
+		return '\n'.join(['%s%s' % (str(self.nlris[n]),str(self.attributes)) for n in range(len(self.nlris))])
+
 
 	# The routes MUST have the same attributes ...
-	def announce (self,negotiated):
-		asn4 = negotiated.asn4
-		local_as = negotiated.local_as
-		peer_as = negotiated.peer_as
-		addpath = negotiated.addpath
-		msg_size = negotiated.msg_size
-		addpath = negotiated.addpath.send(self.afi,self.safi)
+	# XXX: FIXME: calculate size progressively to not have to do it every time
+	# XXX: FIXME: we could as well track when packed_del, packed_mp_del, etc
+	# XXX: FIXME: are emptied and therefore when we can save calculations
+	def messages (self,negotiated):
+		# sort the nlris
 
-		if self.afi == AFI.ipv4 and self.safi in [SAFI.unicast, SAFI.multicast]:
-			nlri = ''.join([route.nlri.pack(addpath) for route in self.routes])
-			mp = ''
+		add_nlri = []
+		del_nlri = []
+		add_mp = {}
+		del_mp = {}
+
+		for nlri in self.nlris:
+			if nlri.family() in negotiated.families:
+				if nlri.afi == AFI.ipv4 and nlri.safi in [SAFI.unicast, SAFI.multicast]:
+					if nlri.action == OUT.announce:
+						add_nlri.append(nlri)
+					else:
+						del_nlri.append(nlri)
+				else:
+					if nlri.action == OUT.announce:
+						add_mp.setdefault(nlri.family(),[]).append(nlri)
+					else:
+						del_mp.setdefault(nlri.family(),[]).append(nlri)
+
+		if not add_nlri and not del_nlri and not add_mp and not del_mp:
+			return
+
+		if add_nlri or add_mp:
+			attr = self.attributes.pack(negotiated,True)
 		else:
-			nlri = ''
-			mp = MPRNLRI(self.routes).pack(addpath)
-		attr = self.attributes.pack(asn4,local_as,peer_as)
-		packed = self._message(prefix('') + prefix(attr + mp) + nlri)
-		if len(packed) > msg_size:
-			routes = self.routes
-			left = self.routes[:len(self.routes)/2]
-			right = self.routes[len(self.routes)/2:]
-			packed = []
-			self.routes = left
-			packed.extend(self.announce(negotiated))
-			self.routes = right
-			packed.extend(self.announce(negotiated))
-			self.routes = routes
-			return packed
-		return [packed]
+			attr = ''
 
+		# withdrawn IPv4
 
-	def withdraw (self,negotiated=None):
-		if negotiated:
-			#asn4 = negotiated.asn4
-			#local_as = negotiated.local_as
-			#peer_as = negotiated.peer_as
-			addpath = negotiated.addpath.send(self.afi,self.safi)
-			msg_size = negotiated.msg_size
-		else:
-			#asn4 = False
-			#local_as = None
-			#peer_as = None
-			addpath = False
-			msg_size = 4077
+		packed_del = ''
+		msg_size = negotiated.msg_size - 19 - 2 - 2  # 2 bytes for each of the two prefix() header
+		addpath = negotiated.addpath.send(AFI.ipv4,SAFI.unicast)
 
-		if self.afi == AFI.ipv4 and self.safi in [SAFI.unicast, SAFI.multicast]:
-			nlri = ''.join([route.nlri.pack(addpath) for route in self.routes])
-			mp = ''
-		else:
-			nlri = ''
-			mp = MPURNLRI(self.routes).pack(addpath)
-		# last sentence of RFC 4760 Section 4, no attributes are required (and make sense)
-		packed = self._message(prefix(nlri) + prefix(mp))
-		if len(packed) > msg_size:
-			routes = self.routes
-			left = self.routes[:len(self.routes)/2]
-			right = self.routes[len(self.routes)/2:]
-			packed = []
-			self.routes = left
-			packed.extend(self.withdraw(negotiated))
-			self.routes = right
-			packed.extend(self.withdraw(negotiated))
-			self.routes = routes
-			return packed
-		return [packed]
+		while del_nlri:
+			nlri = del_nlri.pop()
+			packed = nlri.pack(addpath)
+			if len(packed_del + packed) >= msg_size:
+				if not packed_del:
+					raise Notify(6,0,'attributes size is so large we can not even pack one NLRI')
+				yield self._message(prefix(packed_del) + prefix(''))
+				packed_del = packed
+			else:
+				packed_del += packed
 
+		# withdrawn MP
 
-	def factory (self,negotiated,data):
-		length = len(data)
+		packed_mp_del = ''
 
-		lw,withdrawn,data = defix(data)
+		families = del_mp.keys()
+		while families:
+			family = families.pop()
+			mps = del_mp[family]
+			addpath = negotiated.addpath.send(*family)
+			mp_packed_generator = MPURNLRI(mps).packed_attributes(addpath)
+			try:
+				while True:
+					packed = mp_packed_generator.next()
+					if len(packed_del + packed_mp_del + packed) >= msg_size:
+						if not packed_mp_del and not packed_del:
+							raise Notify(6,0,'attributes size is so large we can not even pack one MPURNLRI')
+						yield self._message(prefix(packed_del) + prefix(packed_mp_del))
+						packed_del = ''
+						packed_mp_del = packed
+					else:
+						packed_mp_del += packed
+			except StopIteration:
+				pass
 
-		if len(withdrawn) != lw:
-			raise Notify(3,1,'invalid withdrawn routes length, not enough data available')
+		# add MP
 
-		la,attribute,announced = defix(data)
+		# we have some MPRNLRI so we need to add the attributes, recalculate
+		# and make sure we do not overflow
 
-		if len(attribute) != la:
-			raise Notify(3,1,'invalid total path attribute length, not enough data available')
+		packed_mp_add = ''
 
-		if 2 + lw + 2+ la + len(announced) != length:
-			raise Notify(3,1,'error in BGP message lenght, not enough data for the size announced')
+		if add_mp:
+			msg_size = negotiated.msg_size - 19 - 2 - 2 - len(attr)  # 2 bytes for each of the two prefix() header
+		if len(packed_del + packed_mp_del) >= msg_size:
+			yield self._message(prefix(packed_del) + prefix(packed_mp_del))
+			packed_del = ''
+			packed_mp_del = ''
 
-		attributes = Attributes()
-		attributes.routeFactory = routeFactory
-		attributes.factory(negotiated,attribute)
+		families = add_mp.keys()
+		while families:
+			family = families.pop()
+			mps = add_mp[family]
+			addpath = negotiated.addpath.send(*family)
+			mp_packed_generator = MPRNLRI(mps).packed_attributes(addpath)
+			try:
+				while True:
+					packed = mp_packed_generator.next()
+					if len(packed_del + packed_mp_del + packed_mp_add + packed) >= msg_size:
+						if not packed_mp_add and not packed_mp_del and not packed_del:
+							raise Notify(6,0,'attributes size is so large we can not even pack on MPURNLRI')
+						yield self._message(prefix(packed_del) + prefix(attr + packed_mp_del + packed_mp_add))
+						packed_del = ''
+						packed_mp_del = ''
+						packed_mp_add = packed
+					else:
+						packed_mp_add += packed
+			except StopIteration:
+				pass
 
-		# Is the peer going to send us some Path Information with the route (AddPath)
-		addpath = negotiated.addpath.receive(AFI(AFI.ipv4),SAFI(SAFI.unicast))
+		# ADD Ipv4
 
-		routes = []
-		while withdrawn:
-			nlri = BGPNLRI(AFI.ipv4,SAFI.unicast_multicast,withdrawn,addpath)
-			route = RouteBGP(nlri,'withdrawn')
-			route.attributes = attributes
-			withdrawn = withdrawn[len(nlri):]
-			routes.append(route)
+		packed_add = ''
 
-		while announced:
-			nlri = BGPNLRI(AFI.ipv4,SAFI.unicast_multicast,announced,addpath)
-			route = RouteBGP(nlri,'announced')
-			route.attributes = attributes
-			announced = announced[len(nlri):]
-			routes.append(route)
+		if add_nlri:
+			msg_size = negotiated.msg_size - 19 - 2 - 2 - len(attr)  # 2 bytes for each of the two prefix() header
+		if len(packed_del + packed_mp_del + packed_mp_add) >= msg_size:
+			yield self._message(prefix(packed_del) + prefix(packed_mp_del))
+			packed_del = ''
+			packed_mp_del = ''
 
-		next_hop_attributes = {}
+		addpath = negotiated.addpath.send(AFI.ipv4,SAFI.unicast)
 
-		for route in attributes.mp_withdraw:
-			routes.append(route)
+		while add_nlri:
+			nlri = add_nlri.pop()
+			packed = nlri.pack(addpath)
+			if len(packed_del + packed_mp_del + packed_mp_add + packed_add + packed) >= msg_size:
+				if not packed_add and not packed_mp_add and not packed_mp_del and not packed_del:
+					raise Notify(6,0,'attributes size is so large we can not even pack one NLRI')
+				if packed_mp_add:
+					yield self._message(prefix(packed_del) + prefix(attr + packed_mp_del + packed_mp_add) + packed_add)
+					msg_size = negotiated.msg_size - 19 - 2 - 2  # 2 bytes for each of the two prefix() header
+				else:
+					yield self._message(prefix(packed_del) + prefix(attr + packed_mp_del) + packed_add)
+				packed_del = ''
+				packed_mp_del = ''
+				packed_mp_add = ''
+				packed_add = packed
+			else:
+				packed_add += packed
 
-		for route in attributes.mp_announce:
-			next_hop = route.attributes[AttributeID.NEXT_HOP]
-			str_hop = str(next_hop)
-			if not str_hop in next_hop_attributes:
-				attr = deepcopy(attributes)
-				attr[AttributeID.NEXT_HOP] = next_hop
-				next_hop_attributes[str_hop] = attr
-			route.attributes = next_hop_attributes[str_hop]
-			routes.append(route)
-
-		return self.new(routes)
+		yield self._message(prefix(packed_del) + prefix(attr + packed_mp_del + packed_mp_add) + packed_add)

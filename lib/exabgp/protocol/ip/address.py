@@ -15,5 +15,11 @@ class Address (object):
 		self.afi = AFI(afi)
 		self.safi = SAFI(safi)
 
-	def __str__ (self):
+	def family (self):
+		return (self.afi,self.safi)
+
+	def address (self):
 		return "%s %s" % (str(self.afi),str(self.safi))
+
+	def __str__ (self):
+		return self.address()

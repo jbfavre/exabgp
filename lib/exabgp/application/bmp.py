@@ -13,15 +13,14 @@ import sys
 import pwd
 import socket
 import select
-import errno
 import asyncore
 
 from struct import unpack
 
 from exabgp.version import version
-
-from exabgp.structure.api import JSON
-from exabgp.bgp.message.update import Update
+from exabgp.reactor.network.error import error
+from exabgp.reactor.api.encoding import JSON
+from exabgp.bgp.message.update.factory import UpdateFactory
 
 from exabgp.bmp.header import Header
 from exabgp.bmp.message import Message
@@ -45,7 +44,7 @@ class BMPHandler (asyncore.dispatcher_with_send):
 		self.fd = env.fd
 		self.ip = ip
 		self.port = port
-		self.json = JSON('2.0')
+		self.json = JSON('3.0')
 		return self
 
 	def _read_data (self,number):
@@ -63,7 +62,7 @@ class BMPHandler (asyncore.dispatcher_with_send):
 			try:
 				data = self.recv(left)
 			except socket.error, e:
-				if e.args[0] in (errno.EWOULDBLOCK,errno.EAGAIN):
+				if e.args[0] in error.block:
 					continue
 				print "problem reading on socket", str(e)
 				return None
@@ -102,9 +101,9 @@ class BMPHandler (asyncore.dispatcher_with_send):
 			return
 
 		negotiated = FakeNegotiated(header,self.asn4)
-		update = Update().factory(negotiated,bgp_body)
+		update = UpdateFactory(negotiated,bgp_body)
 		if self.use_json:
-			print >> self.fd, self.json.bmp(self.ip,update.routes)
+			print >> self.fd, self.json.bmp(self.ip,update)
 		else:
 			for route in update.routes:
 				print >> self.fd, route.extensive()
@@ -154,7 +153,7 @@ def drop ():
 		os.setuid(nuid)
 
 
-from exabgp.structure.environment import environment
+from exabgp.configuration.environment import environment
 
 environment.application = 'exabmp'
 environment.configuration = {
@@ -185,7 +184,7 @@ environment.configuration = {
 		),
 		'all'           : (environment.boolean,environment.lower,'false',    'report debug information for everything'),
 		'configuration' : (environment.boolean,environment.lower,'false',    'report command parsing'),
-		'supervisor'    : (environment.boolean,environment.lower,'true',     'report signal received, command reload'),
+		'reactor'       : (environment.boolean,environment.lower,'true',     'report signal received, command reload'),
 		'daemon'        : (environment.boolean,environment.lower,'true',     'report pid change, forking, ...'),
 		'processes'     : (environment.boolean,environment.lower,'true',     'report handling of forked processes'),
 		'network'       : (environment.boolean,environment.lower,'true',     'report networking information (TCP/IP, network state,...)'),

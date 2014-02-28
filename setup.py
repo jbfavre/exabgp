@@ -14,9 +14,7 @@ from distutils.core import setup
 from distutils.util import get_platform
 
 try:
-	f = open('lib/exabgp/version.py','r')
-	version = f.read().strip().split('"')[1]
-	f.close()
+	version = os.popen('git describe --tags').read().split('-')[0].strip()
 except Exception,e:
 	print "can not find the 'version.py' file in the repository"
 	sys.exit(1)
@@ -47,16 +45,16 @@ setup(name='exabgp',
 	long_description="Control your network using BGP from any commodity servers and reap the benefit of software defined networking without OpenFlow. Receive parsed BGP updates in a friendly form (plain text or JSON) and manipulate them with simple scripts.",
 	author='Thomas Mangin',
 	author_email='thomas.mangin@exa-networks.co.uk',
-	url='http://code.google.com/p/exabgp/',
+	url='https://github.com/Exa-Networks/exabgp',
 	license="BSD",
 	platforms=[get_platform(),],
 	package_dir = {'': 'lib'},
 	packages=packages('lib'),
 	scripts=['sbin/exabgp',],
-	download_url='http://exabgp.googlecode.com/files/exabgp-%s.tgz' % version,
+	download_url='https://github.com/Exa-Networks/exabgp/archive/%s.tar.gz' % version,
 	data_files=[
 		('etc/exabgp',configuration('etc/exabgp')),
-		('usr/lib/systemd/system',configuration('etc/systemd')),
+		('/usr/lib/systemd/system',configuration('etc/systemd')),
 	],
 	classifiers=[
 		'Development Status :: 5 - Production/Stable',

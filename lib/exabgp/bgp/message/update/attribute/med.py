@@ -1,6 +1,6 @@
 # encoding: utf-8
 """
-attributes.py
+med.py
 
 Created by Thomas Mangin on 2009-11-05.
 Copyright (c) 2009-2013 Exa Networks. All rights reserved.
@@ -22,7 +22,7 @@ class MED (Attribute):
 		self.med = self._attribute(med)
 		self._str = str(unpack('!L',med)[0])
 
-	def pack (self):
+	def pack (self,asn4=None):
 		return self.med
 
 	def __len__ (self):
