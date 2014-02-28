@@ -6,14 +6,21 @@ Created by Thomas Mangin on 2009-11-05.
 Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 """
 
-from exabgp.bgp.message import Failure, Message
+from exabgp.bgp.message import Message
 
 # =================================================================== Notification
 # A Notification received from our peer.
 # RFC 4271 Section 4.5
 
-class Notification (Message,Failure):
-	TYPE = chr(0x03)
+# 0                   1                   2                   3
+# 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+# +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+# | Error code    | Error subcode |   Data (variable)             |
+# +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+
+class Notification (Message):
+	TYPE = chr(Message.Type.NOTIFICATION)
 
 	_str_code = {
 		1 : "Message header error",
@@ -76,16 +83,15 @@ class Notification (Message,Failure):
 		(6,6) : "Other Configuration Change",
 		(6,7) : "Connection Collision Resolution",
 		(6,8) : "Out of Resources",
+		# draft-keyur-bgp-enhanced-route-refresh-00
+		(7,1) : "Invalid Message Length",
+		(7,2) : "Malformed Message Subtype",
 	}
 
-	def new (self,code,subcode,data=''):
+	def __init__ (self,code,subcode,data=''):
 		self.code = code
 		self.subcode = subcode
 		self.data = data
-		return self
-
-	def factory (self,data):
-		return self.new(ord(data[0]),ord(data[1]),data[2:])
 
 	def __str__ (self):
 		return "%s / %s%s" % (
@@ -95,13 +101,23 @@ class Notification (Message,Failure):
 		)
 
 
+def NotificationFactory (data):
+	return Notification(ord(data[0]),ord(data[1]),data[2:])
+
+
+
 # =================================================================== Notify
 # A Notification we need to inform our peer of.
 
 class Notify (Notification):
-	def __init__ (self,code,subcode,data=''):
-		Notification.__init__(self)
-		self.new(code,subcode,data)
+	def __init__ (self,code,subcode,data=None):
+		if data is None:
+			data = self._str_subcode.get((code,subcode),'unknown notification type')
+		Notification.__init__(self,code,subcode,data)
 
 	def message (self):
-		return self._message("%s%s%s" % (chr(self.code),chr(self.subcode),self.data))
+		return self._message("%s%s%s" % (
+			chr(self.code),
+			chr(self.subcode),
+			self.data
+		))

@@ -20,9 +20,9 @@
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="BGP route injector"
 USER=exabgp
-NAME=exabgp 
+NAME=exabgp
 DAEMON=/usr/sbin/exabgp
-DAEMON_ARGS="" 
+DAEMON_ARGS=""
 PIDFILE=/var/run/$NAME/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 
@@ -67,7 +67,7 @@ do_start()
 			#   1 if daemon was already running
 			#   2 if daemon could not be started
 			# We create the PID file and we do background thanks to start-stop-daemon
-			start-stop-daemon --start --quiet --pidfile $PIDFILE -c $USER -b -m --exec $DAEMON -- $DAEMON_OPTS 
+			start-stop-daemon --start --quiet --pidfile $PIDFILE -c $USER -b -m --exec $DAEMON -- $DAEMON_OPTS
 			return $?
 		fi
         fi
@@ -104,11 +104,18 @@ do_stop()
 }
 
 #
-# Function that sends a SIGHUP to the daemon/service
+# Function that sends a SIGUSR1 to the daemon/service
 #
 do_reload() {
 	if [ "$EXABGPRUN" = "yes" ] || [ "$EXABGPRUN" = "YES" ]; then
-		start-stop-daemon --stop --signal HUP --quiet --pidfile $PIDFILE -c $USER
+		start-stop-daemon --stop --signal USR1 --quiet --pidfile $PIDFILE -c $USER
+		return 0
+	fi
+}
+
+do_force_reload() {
+	if [ "$EXABGPRUN" = "yes" ] || [ "$EXABGPRUN" = "YES" ]; then
+		start-stop-daemon --stop --signal USR2 --quiet --pidfile $PIDFILE -c $USER
 		return 0
 	fi
 }
@@ -118,7 +125,7 @@ case "$1" in
 	start-stop-daemon --status --quiet --pidfile $PIDFILE -c $USER
 	retval=$?
 	if [ $retval -eq 0 ] ; then
-		log_warning_msg "$NAME is already running" 
+		log_warning_msg "$NAME is already running"
 		log_end_msg 1
 	else
 		log_daemon_msg "Starting $DESC" "$NAME "
@@ -140,12 +147,17 @@ case "$1" in
   status)
 	status_of_proc -p "$PIDFILE" "$DAEMON" "$NAME" && exit 0 || exit $?
         ;;
-  reload|force-reload)
+  reload)
 	log_daemon_msg "Reloading $DESC" "$NAME "
 	do_reload
 	log_end_msg $?
 	;;
-  restart|force-reload)
+  force-reload)
+	log_daemon_msg "Reloading $DESC (and subprocesses)" "$NAME "
+	do_force_reload
+	log_end_msg $?
+	;;
+  restart)
 	log_daemon_msg "Restarting $DESC" "$NAME "
 	do_stop
 	case "$?" in
@@ -164,7 +176,7 @@ case "$1" in
 	esac
 	;;
   *)
-	log_warning_msg "Usage: $SCRIPTNAME {start|stop|restart|reload|force-reload|status}" 
+	log_warning_msg "Usage: $SCRIPTNAME {start|stop|restart|reload|force-reload|status}"
 	log_end_msg 3
 	exit 3
 	;;

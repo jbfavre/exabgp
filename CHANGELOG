@@ -3,6 +3,265 @@ Version explained:
  minor : increase on risk of code breakage during a major release
  bug   : increase on bug or incremental changes
 
+Version 3.3.0
+ * Fix: typo causing issue when parsing multiple neighbor commands
+    reported by: Pablo Camarillo Garvia
+ * Fix: bad handling of EOR
+    reported by: Petr Lapukhov
+ * Fix: multiple bugs with multi neighbor commands
+ * Improvement: allow as-path [ asn asn, [ asn ] ]
+ * Other: migrate the setup.py script to work with git (vs hg)
+ * Change: TEXT API format changed and version updated to 3.3.0 (reflect the version when the last change was introduced)
+ * Change: JSON API format changed and version updated to 3.3.0
+ * Change: as-path now returns two JSON keys, 'as-path' and 'as-set'
+ * Change: NLRI are now grouped by next-hop, next-hop removed from the NLRI
+ * Change: raw message use the keyword "message" and not "update"
+ * Change/Fix: JSON for announcement was missing next-hop
+ * Change: on TEXT API, "announced route eor" becomes "announced eor"
+
+Version 3.2.19
+ * Fix: bug when displaying EOR
+ * Fix: invalid check on next-hop for multi-line routes
+    reported by: Pierre Aubry
+ * Fix: badly parsing command line for run option
+    reported by: Allan Feid
+    solution by: Vincent Bernat
+ * Fix: allow the creation of 'allow' flows
+    reported by: Adrian Cepleanu
+ * Fix: bad JSON encoding for EOR
+    reported by: Robert Barnes
+ * Fix: API message encoding
+    patch by: Daniel Neiter
+ * Improvement: allow digit:digit in extended communities
+    requested by: Pierre Aubry
+ * Improvement: healtcheck.py, python 2.6 and community support
+    pulled from: Allan Feid
+
+Version 3.2.18
+ * Fix: add path for IPv6 was badly negotiated
+    reported by: Robert Barnes
+
+Version 3.2.17
+ * Feature: make route auto-flush an option with an API call to flush routes on demand
+ * Feature: make the reactor loop time an option (it allows for a faster flush of routes)
+ * Feature: allow to disable the Adj-RIB-Out (can save lots of memory if you know what you are going to send)
+    requested by: David Hauweele
+ * Fix: Keep API routes between SIGUSR
+ * Fix: Missing empty added nlri when the update only has withdrawn
+    reported by Robert Barnes (and his co-workers) with a patch, thank you !
+ * Fix: Single AS Path with AS Set were reported as empty AS Path and AS Set
+    reported by: David Hauweele
+ * Fix: possibly not sending withdrawal when it was required
+    reported by: David Hauweele
+ * Fix: typo in code causing crash when process went away
+    reported by: Robert Barnes
+ * Fix: RouterID MUST be an IPv4
+    reported by: Kristopher Beevers
+ * Fix: JSON output on EBGP and IBGP session is not the same
+    reported by: Robert Barnes
+ * Fix: route representation with labels and route distinguisher
+ * Fix: do not double remove the BGP header size
+    reported by: Hideaki HAYASHI
+ * Fix: parsing flow NLRI, withdrawal were reported as announcement
+ * Fix: printing extended communities
+ * Fix: retry when network is blocking (issue 60)
+    reported by: Hideaki HAYASHI
+ * Change: remove next-hop from attributes in JSON as it is given in the announce section
+ * Change: cleanup in configuration parsing
+ * Change: the path-information, labels and route distinguisher are now printed before the next-hop
+
+Version 3.2.16
+ * Fix: fix an issue with RIB cache handling
+ * Fix: fix an issue with Flow generation introduced recently (mandatory attributes are mandatory even for Flow Routes)
+    thanks to: Quentin Loos for reporting the issue and helping fixing it
+ * Fix: on SIGUSR no route withdrawal update was performed
+    reported by: Sascha Schumann
+ * Fix: Do not oversend routes for route refresh
+    reported by: Hideaki HAYASHI
+ * Fix: Bug when route when trying to withdraw an absent route with the API
+    reported by: Peter Bristow
+ * Fix: Malformed JSON message
+    reported by: Robert Barnes
+ * Fix: validate the FLAG of the attribute received (following our own advise on IDR)
+ * Change: major RIB code modification
+ * Change: match attributes using the flag value as well
+
+Version 3.2.15
+ * Fix: a wrong fix introducing a bug in 3.2.14
+
+Version 3.2.14
+ * Fix: do not leak route between peers
+ * Fix: restore group level static group for all peers thereafter
+ * Fix: a bug in group-updates causing attributes to not be included in the update message
+ * Fix: a bug when update large than 4096 could be generated with group-updates
+ * Fix: an issue with JSON generation
+ * Fix: MD5 support had been removed by error from 3.2
+ * Improvement: allow to use quote with --decode
+ * Improvement: implement draft-ietf-idr-aigp-10
+
+Version 3.2.13
+ * Fix: do not send enhanced route refresh BoRR and EoRR on reconnection
+ * Fix: do not take all the CPU when connecting
+
+Version 3.2.12
+ * Fix: the signal for reload were wrong in the debian script
+    reported by: Sascha Schumann
+ * Fix: a critical bug introduce in 3.2.11 when route were not resent on reconnect
+    reported by: Sascha Schumann
+
+Version 3.2.11
+ * Improvement: the TCP server allows 'neighbor' commands
+    patch by: Hideaki HAYASHI
+ * Improvement: initial Enhanced route refresh initial implementation
+    thanks to: Hideaki HAYASHI for reporting an issue before the release (some border cases still exist)
+ * Fix: bug in generating API string, missing space
+ * Fix: bug in generating API string, withdrawn reported as invalid announced
+ * Fix: bug in generating API string, withdawn was missing Path-Information
+ * Fix: route refresh implementation issues
+ * Fix: a bug with capability parsing introduced with operational
+    reported by: M. Brent Busby
+ * Fix: be more aggressive on reconnection (3.2 was slower than 3.1)
+    reported by: Sascha Schumann
+
+Version 3.2.10
+ * Fix: was not announcing add-path for IPv6 unicast
+ * Fix: we were not sending the Notification messages
+    reported by: Hideaki HAYASHI
+ * Improvement: add support for route-refresh (RFC 2918)
+
+Version 3.2.9
+ * Fix: some json generation issue
+    reported by: Peter Spikings
+ * Fix: bad decoding of withdrawn routes with label ( checking 0x80000 and not 0x800000 )
+ * Fix: only treat 0x800000 as special for route withdrawal
+ * Fix: we could believe we were already connected when we were not
+ * Fix: handle when ExaBGP daftly connects to iself
+ * Fix: did not parse add-path capability correctly (only registered the last family sent)
+    reported Ryan Steinmetz
+ * Fix: ASM messages were sent as ADM
+ * Improvement: decode shows the JSON representation of updates
+ * Improvement: start of support for draft-ietf-idr-operational-message-00
+ * Improvement: allow operational advisory message using the API
+
+Version 3.2.8
+ * Fix: correctly re-send routes between restart
+
+Version 3.2.7
+ * Fix: do not try to read empty body, causing loop delay
+
+Version 3.2.6
+ * Fix: bug in collision detection
+ * Fix: prevent re-announcement of identical routes
+
+Version 3.2.5
+ * Improvement: FlowSpec decoding (ExaBGP can decode incoming FlowSpec)
+ * Improvement: detect invalid netmask on route parsing
+ * Improvement: "next-hop self" is supported via the API
+ * Improvement: can accept incoming connect and perform collision detection
+ * Improvement: add support for draft-ietf-idr-flowspec-redirect-ip-00.txt
+ * Improvement: add missing DCSP marking from RFC 5575 (flowspec)
+ * Improvement: add missing traffic-action from RFC 5575 (flowspec)
+ * Improvement: add support for draft-raszuk-idr-flow-spec-v6-03
+ * Improvement: complete RFC 5575 by providing support for flow-vpn
+ * Fix: async connect issues
+    reported by: Vincent Bernat (with very good advice for the patch)
+ * Fix: bad function defintions
+    patch by: Vincent Bernat
+ * Fix/Compatibility: bad naming of flow capability
+ * Compatibility: -c becomes -f (it should not be used by users anyway)
+
+Version 3.2.4
+ * Improvement: new update code generation can really group NLRI in one update packet
+ * Improvement: massive code cleanup, much easier to read
+ * Improvement: new RIB code (inbound and outbound tables) much faster
+ * Compatibility: JSON next-hop for the route is not in the attribute anymore but the NLRI
+
+Version 3.2.3
+ * Fix: an issue in the 3.2.x series when the socket return a non-fatal error
+    reported by: Daniel Bradshaw
+ * Fix: an issue when the code would not behave correctly on network error
+ * Fix: some issues when encoding vpnv4 routes
+ * Fix: change the behaviour of the main peer loop (should behave more like expected - no bug reported tho)
+ * Fix: many small fixes
+ * Fix: bad encoding of FlowSpec Fragments
+ * Improvement: implemented some defensive coding practice (enable with exabgp.debug.defensive)
+ * Improvement: IO code now fully non blocking on read and write
+ * Improvement: total rewrite of the watchdog feature now extremely scalable
+
+Version 3.2.2
+ * Improvement: allow to generate NOTIFICATION messages through the API
+    requested by: Parag Jain
+ * Improvement: new syntax for the multiple neighbor announcement created in 3.1.13
+    Allow to filter on more than the IP address
+    requested by: Petr Lapukhov
+ * Improvement: better uid/euid/gid change check
+ * Improvement: allow to reload with restart of helper process with SIGUSR1
+    patch by: Vincent Bernat
+ * Improvement: --decode can now be passed multiple messages to decode
+ * Improvement: -v,--version returns ExaBGP's version
+ * Improvement: be more robust on ^C
+ * Improvement: totally rewrote the networking code, it now better deal with blocking write and not not need buffering
+ * Improvement: user controlled open wait timer
+ * Improvement: handle unknown transitive attributes
+ * Improvement: allow the generation of generic attributes
+ * Improvement: faster parsing of consecutive updates with the same attributes
+ * Improvement: more regression testing
+ * Fix: potential issue with multisession collision detection
+ * Fix: with multisession recent python would refuse to copy an route due to a lock in logger of the neighbor object
+ * Fix: could not handle NOTICATION sent during the OPEN negotiation stage
+ * Fix: extra spaces in the configuration could cause bad parsing
+    reported by: Parag Jain (with a patch for the RD case - thank you)
+    reported by: Vincent Bernat (with an alternate solution)
+ * Fix: ExaBGP would not connect if the OS did not implement SO_REUSEPORT
+    reported by: Vincent Bernat
+ * Fix: the configuration would not handle run program with upper case or spaces
+    reported by: Vincent Bernat
+ * Fix: bug in the networking code
+    patch by: Vincent Bernat
+ * Fix: an issue with received timer expiring when it should not have
+    reported by: Eric Cables
+ * Fix: do not try to parse Flow Route when perforing self-check (ExaBGP regression suite)
+ * Compatibility: supervisor was renamed reactor
+ * Compatibility: the word inet4/inet6 are now replaced by ipv4/ipv6
+ * Compatibility: the option exabgp.tcp.block was removed following the networking code change
+ * Compatibility: reload the configuration with SIGUSR1, reload configuration and processes with SIGUSR2
+ * Compatinility: using SIGHUP will now TERMINATE ExaBGP and not reload the configuration
+    reported by: Daniel Bradshaw (issue 32)
+
+Version 3.1.13 - 6th July 2013
+ * Fix: only clear buffered routes on restart and not reload (bug never reported)
+ * Fix: an issue when parsing EOR
+ * Fix: bug with RD community genration
+    reported by: Parag Jain
+ * Improvement: use less memory on route change calculation
+ * Improvement: more regression testing
+ * Improvement: allow to control which neighbor will get API notification
+    requested by: Parag Jain
+ * Improvement: allow to control which neighbors will get API notification
+    requested by: Petr Lapukhov
+ * Improvement: allow delayed connections
+    requested by: David Freeman
+ * Improvement: block on busy socket for performance testing
+    requested by: David Freeman
+ * Fix/Improvement: only announce routes for the negociated family on a connection
+    requested by: Andrew Hoyos
+
+Version 3.1.12 - 16th May 2013
+ * Fix: could crash when a family safi was not defined in the peer family group instead of exiting with an error
+ * Fix: a bug in the generation of extended community (target and origin)
+
+Version 3.1.11 - 2nd of May 2013
+ * Fix/Improvement: prevent exabgp api command to block the main loop if very long (issue 29)
+ * Improvement: better sharing of available time between api and peers
+ * Fix: a bug when trying to stop exabgp and a worker process is unstable
+ * Improvement: count how many time a worker crashed and stop the application it is unstable (5 restart in 64 seconds)
+
+Version 3.1.10 - 2nd of May 2013
+ * Change: the JSON format of ASPath
+
+Version 3.1.10 - 8th of April 2013
+ * Change: relax a rule and let MED propagate on IBGP
+
 Version 3.1.9 - 27th of March 2013
  * Fix: bug in logging
  * Fix: typo in neighbor printing

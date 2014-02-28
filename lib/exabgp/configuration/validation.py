@@ -8,27 +8,30 @@ Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 
 __all__ = ["validation", "ValidationError"]
 
+FORMAT = 3
 DEBUG = False
 
 from collections import deque, OrderedDict
 
-from exabgp.configuration import check
+from exabgp.data import check
 
 TYPE=check.TYPE
 PRESENCE=check.PRESENCE
 
 class ValidationError (Exception):
-	type_error = 'the data is of the wrong type'
 	internal_error = 'invalid configuration definition (internal error)'
-	configuration_error = 'missing configuration information'
-	conflicting_error = 'conflicting configuration'
+	mandatory_error = 'missing mandatory configuration field'
+	type_error = 'the data for this configuration option is not what was expected'
+	configuration_error = 'the configuration is missing this information'
+	conflicting_error = 'the configuration has conflicting information'
 
 	def __init__ (self,location,message):
 		self.location = location
 		self.message = message
 
 	def __str__ (self):
-		return ','.join(self.location) + ' : ' + self.message
+		location = ','.join(self.location) if self.location else 'root'
+		return 'location ' + location + ' : ' + self.message
 
 _attributes = OrderedDict((
 	('next-hop', (TYPE.string, PRESENCE.optional, '', check.ipv4)),
@@ -42,6 +45,7 @@ _attributes = OrderedDict((
 	('atomic-aggregate' , (TYPE.boolean , PRESENCE.optional, '', check.nop)),
 	('community' , (TYPE.array , PRESENCE.optional, '', check.community)),
 	('extended-community' , (TYPE.array , PRESENCE.optional, '', check.extendedcommunity)),
+	('aigp', (TYPE.integer, PRESENCE.optional, '', check.aigp)),
 	('label' , (TYPE.array , PRESENCE.optional, '', check.label)),
 	('cluster-list' , (TYPE.array , PRESENCE.optional, '', check.clusterlist)),
 	('originator-id' , (TYPE.string , PRESENCE.optional, '', check.originator)),
@@ -53,16 +57,17 @@ _attributes = OrderedDict((
 ))
 
 _definition = (TYPE.object, PRESENCE.mandatory, '', OrderedDict((
-	('exabgp' , (TYPE.integer, PRESENCE.mandatory, '', [3,])),
+	('exabgp' , (TYPE.integer, PRESENCE.mandatory, '', [FORMAT,])),
 	('neighbor' , (TYPE.object, PRESENCE.mandatory, '', OrderedDict((
 		('<*>' , (TYPE.object, PRESENCE.mandatory, '', OrderedDict((
 			('tcp' , (TYPE.object, PRESENCE.mandatory, '', OrderedDict((
 				('bind' , (TYPE.string, PRESENCE.mandatory, '', check.ip)),
 				('connect' , (TYPE.string, PRESENCE.mandatory, '', check.ip)),
 				('ttl-security' , (TYPE.integer, PRESENCE.optional, '', check.uint8)),
-				('md5' , (TYPE.string, PRESENCE.optional, '', check.md5))
+				('md5' , (TYPE.string, PRESENCE.optional, '', check.md5)),
+				('passive' , (TYPE.boolean, PRESENCE.optional, '', check.nop)),
 			)))),
-			('api' , (TYPE.object, PRESENCE.optional, 'apis', OrderedDict((
+			('api' , (TYPE.object, PRESENCE.optional, 'api', OrderedDict((
 				('<*>' , (TYPE.array, PRESENCE.mandatory, '', ['neighbor-changes','send-packets','receive-packets','receive-routes'])),
 			)))),
 			('session' , (TYPE.object, PRESENCE.mandatory, '', OrderedDict((
@@ -72,11 +77,19 @@ _definition = (TYPE.object, PRESENCE.mandatory, '', OrderedDict((
 					('local' , (TYPE.integer, PRESENCE.mandatory, '', check.uint32)),
 					('peer' , (TYPE.integer, PRESENCE.mandatory, '', check.uint32)),
 				)))),
+				('feature' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
+					('updates' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
+						('group' , (TYPE.boolean, PRESENCE.optional, '', check.nop)),
+						('flush' , (TYPE.boolean, PRESENCE.optional, '', check.nop)),
+					)))),
+					('rib' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
+						('adj-rib-out' , (TYPE.boolean, PRESENCE.optional, '', check.nop)),
+					)))),
+				)))),
 				('capability' , (TYPE.object, PRESENCE.mandatory, '', OrderedDict((
 					('family' , (TYPE.object, PRESENCE.mandatory, '', OrderedDict((
-						('inet'  , (TYPE.array, PRESENCE.optional, '', ['unicast','multicast','nlri-mpls','mpls-vpn','flow-vpnv4','flow'])),
-						('inet4' , (TYPE.array, PRESENCE.optional, '', ['unicast','multicast','nlri-mpls','mpls-vpn','flow-vpnv4','flow'])),
-						('inet6' , (TYPE.array, PRESENCE.optional, '', ['unicast','flow'])),
+						('ipv4' , (TYPE.array, PRESENCE.optional, '', ['unicast','multicast','nlri-mpls','mpls-vpn','flow-vpn','flow'])),
+						('ipv6' , (TYPE.array, PRESENCE.optional, '', ['unicast','flow'])),
 						('alias' , (TYPE.string, PRESENCE.optional, '', ['all','minimal'])),
 					)))),
 					('asn4' , (TYPE.boolean, PRESENCE.optional, '', check.nop)),
@@ -84,18 +97,19 @@ _definition = (TYPE.object, PRESENCE.mandatory, '', OrderedDict((
 					('graceful-restart' , (TYPE.boolean, PRESENCE.optional, '', check.nop)),
 					('multi-session' , (TYPE.boolean, PRESENCE.optional, '', check.nop)),
 					('add-path' , (TYPE.boolean, PRESENCE.optional, '', check.nop)),
+					('aigp' , (TYPE.boolean, PRESENCE.optional, '', check.nop)),
 				)))),
 			)))),
-			('announce' , (TYPE.array, PRESENCE.optional, ['updates,prefix','updates,flow'], check.string)),
+			('announce' , (TYPE.array, PRESENCE.optional, ['update,prefix','update,flow'], check.string)),
 		)))),
 	)))),
-	('apis' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
+	('api' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
 		('<*>' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
 			('encoder' , (TYPE.string, PRESENCE.optional, '', ['json','text'])),
 			('program' , (TYPE.string, PRESENCE.mandatory, '', check.nop)),
 		)))),
 	)))),
-	('attributes' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
+	('attribute' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
 		('<*>' , (TYPE.object, PRESENCE.optional, '', _attributes)),
 	)))),
 	('flow' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
@@ -128,9 +142,9 @@ _definition = (TYPE.object, PRESENCE.mandatory, '', OrderedDict((
 			)))),
 		)))),
 	)))),
-	('updates' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
+	('update' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
 		('prefix' , (TYPE.object, PRESENCE.optional, '', OrderedDict((
-			('<*>' , (TYPE.object, PRESENCE.optional, 'attributes', OrderedDict((  # name of route
+			('<*>' , (TYPE.object, PRESENCE.optional, 'attribute', OrderedDict((  # name of route
 				('<*>' , (TYPE.object, PRESENCE.mandatory, '', OrderedDict((  # name of attributes referenced
 					('<*>' , (TYPE.object, PRESENCE.optional, '', _attributes)),  # prefix
 				)))),
@@ -207,7 +221,7 @@ def _validate (root,json,definition,location=[]):
 	# ignore missing optional elements
 	if not json:
 		if presence == PRESENCE.mandatory:
-			raise ValidationError(location, ValidationError.configuration_error)
+			raise ValidationError(location, ValidationError.mandatory_error)
 		return
 
 	# check that the value of the right type
@@ -227,7 +241,7 @@ def _validate (root,json,definition,location=[]):
 				continue
 
 			if type(json) != type({}):
-				raise ValidationError(location, ValidationError.configuration_error)
+				raise ValidationError(location, ValidationError.type_error)
 
 			if key == '<*>':
 				keys.extendleft(json.keys())

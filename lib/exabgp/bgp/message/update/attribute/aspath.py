@@ -9,6 +9,8 @@ Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 from exabgp.bgp.message.update.attribute.id import AttributeID
 from exabgp.bgp.message.update.attribute import Flag,Attribute
 
+from exabgp.bgp.message.open.asn import AS_TRANS
+
 # =================================================================== ASPath (2)
 
 class ASPath (Attribute):
@@ -26,6 +28,7 @@ class ASPath (Attribute):
 		self.packed = {True:'',False:''}
 		self.index = index  # the original packed data, use for indexing
 		self._str = ''
+		self._json = {}
 
 	def _segment (self,seg_type,values,asn4):
 		l = len(values)
@@ -43,10 +46,23 @@ class ASPath (Attribute):
 			segments += self._segment(self.AS_SET,self.as_set,asn4)
 		return segments
 
-	def pack (self,asn4):
+	def _pack (self,asn4):
 		if not self.packed[asn4]:
 			self.packed[asn4] = self._attribute(self._segments(asn4))
 		return self.packed[asn4]
+
+	def pack (self,asn4):
+		# if the peer does not understand ASN4, we need to build a transitive AS4_PATH
+		if asn4:
+			return self._pack(True)
+
+		as2_seq = [_ if not _.asn4() else AS_TRANS for _ in self.as_seq]
+		as2_set = [_ if not _.asn4() else AS_TRANS for _ in self.as_set]
+
+		message = ASPath(as2_seq,as2_set)._pack(False)
+		if AS_TRANS in as2_seq or AS_TRANS in as2_set:
+			message += AS4Path(self.as_seq,self.as_set)._pack()
+		return message
 
 	def __len__ (self):
 		raise RuntimeError('it makes no sense to ask for the size of this object')
@@ -55,8 +71,11 @@ class ASPath (Attribute):
 		if not self._str:
 			lseq = len(self.as_seq)
 			lset = len(self.as_set)
-			if lseq == 1 and not lset:
-				string = '%d' % self.as_seq[0]
+			if lseq == 1:
+				if not lset:
+					string = '%d' % self.as_seq[0]
+				else:
+					string = '[ %s %s]' % (self.as_seq[0],'( %s ) ' % (' '.join([str(_) for _ in self.as_set])))
 			elif lseq > 1 :
 				if lset:
 					string = '[ %s %s]' % ((' '.join([str(_) for _ in self.as_seq])),'( %s ) ' % (' '.join([str(_) for _ in self.as_set])))
@@ -67,25 +86,27 @@ class ASPath (Attribute):
 			self._str = string
 		return self._str
 
-	def json (self):
-		if not self._str:
-			lseq = len(self.as_seq)
-			lset = len(self.as_set)
-			if lseq == 1 and not lset:
-				string = '%d' % self.as_seq[0]
-			elif lseq > 1 :
-				if lset:
-					string = '[ [ %s ], [ %s ] ]' % ((', '.join([str(_) for _ in self.as_seq])),', '.join([str(_) for _ in self.as_set]))
+	def json (self,name):
+		if name not in self._json:
+			if name == 'as-path':
+				if self.as_seq:
+					self._json[name] = '[ %s ]' % ', '.join([str(_) for _ in self.as_seq])
 				else:
-					string = '[ %s ]' % ', '.join([str(_) for _ in self.as_seq])
-			else:  # lseq == 0
-				string = '[ ]'
-			self._str = string
-		return self._str
+					self._json[name] = '[]'
+			elif name == 'as-set':
+				if self.as_set:
+					self._json[name] = '[ %s ]' % ', '.join([str(_) for _ in self.as_set])
+				else:
+					self._json[name] = ''
+			else:
+				# very wrong ,,,,
+				return "[ 'bug in ExaBGP\'s code' ]"
+		return self._json[name]
+
 
 class AS4Path (ASPath):
 	ID = AttributeID.AS4_PATH
 	FLAG = Flag.TRANSITIVE|Flag.OPTIONAL
 
-	def pack (self):
+	def pack (self,asn4=None):
 		ASPath.pack(self,True)

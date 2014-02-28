@@ -36,7 +36,7 @@ class Community (object):
 	def json (self):
 		return "[ %d, %d ]" % unpack('!HH',self.community)
 
-	def pack (self):
+	def pack (self,asn4=None):
 		return self.community
 
 	def __str__ (self):
@@ -84,7 +84,7 @@ class Communities (Attribute):
 	def add(self,data):
 		return self.communities.append(data)
 
-	def pack (self):
+	def pack (self,asn4=None):
 		if len(self.communities):
 			return self._attribute(''.join([c.pack() for c in self.communities]))
 		return ''
@@ -106,8 +106,17 @@ class Communities (Attribute):
 
 # MUST ONLY raise ValueError
 def to_ExtendedCommunity (data):
-	command,ga,la = data.split(':')
+	nb_separators = data.count(':')
+	if nb_separators == 2:
+		command,ga,la = data.split(':')
+	elif nb_separators == 1:
+		command = 'target'
+		ga,la = data.split(':')
+	else:
+		raise ValueError('invalid extended community %s (only origin or target are supported) ' % command)
 
+
+	header = chr(0x00)
 	if command == 'origin':
 		subtype = chr(0x03)
 	elif command == 'target':
@@ -115,20 +124,28 @@ def to_ExtendedCommunity (data):
 	else:
 		raise ValueError('invalid extended community %s (only origin or target are supported) ' % command)
 
-	gc = ga.count('.')
-	lc = la.count('.')
-	if gc == 0 and lc == 3:
-		# ASN first, IP second
-		header = chr(0x40)
-		global_admin = pack('!H',int(ga))
-		local_admin = pack('!BBBB',*[int(_) for _ in la.split('.')])
-	elif gc == 3 and lc == 0:
-		# IP first, ASN second
-		header = chr(0x41)
-		global_admin = pack('!BBBB',*[int(_) for _ in ga.split('.')])
-		local_admin = pack('!H',int(la))
+	if '.' in ga or '.' in la:
+		gc = ga.count('.')
+		lc = la.count('.')
+		if gc == 0 and lc == 3:
+			# ASN first, IP second
+			global_admin = pack('!H',int(ga))
+			local_admin = pack('!BBBB',*[int(_) for _ in la.split('.')])
+		elif gc == 3 and lc == 0:
+			# IP first, ASN second
+			global_admin = pack('!BBBB',*[int(_) for _ in ga.split('.')])
+			local_admin = pack('!H',int(la))
+		else:
+			raise ValueError('invalid extended community %s ' % data)
 	else:
-		raise ValueError('invalid extended community %s ' % data)
+		if command == 'target':
+			global_admin = pack('!H',int(ga))
+			local_admin = pack('!I',int(la))
+		elif command == 'origin':
+			global_admin = pack('!I',int(ga))
+			local_admin = pack('!H',int(la))
+		else:
+			raise ValueError('invalid extended community %s (only origin or target are supported) ' % command)
 
 	return ECommunity(header+subtype+global_admin+local_admin)
 
@@ -151,7 +168,7 @@ class ECommunity (object):
 	def transitive (self):
 		return not not (self.community[0] & 0x40)
 
-	def pack (self):
+	def pack (self,asn4=None):
 		return self.community
 
 	def json (self):
@@ -181,11 +198,36 @@ class ECommunity (object):
 				ip = '%s.%s.%s.%s' % unpack('!BBBB',self.community[2:6])
 				asn = unpack('!H',self.community[6:])[0]
 				return "origin:%s:%d" % (ip,asn)
-		h = 0x00
-		for byte in self.community:
-			h <<= 8
-			h += ord(byte)
-		return "0x%016X" % h
+
+		# Traffic rate
+		if self.community.startswith('\x80\x06'):
+			speed = unpack('!f',self.community[4:])[0]
+			if speed == 0.0:
+				return 'discard'
+			return 'rate-limit %d' % speed
+		# redirect
+		elif self.community.startswith('\x80\x07'):
+			actions = []
+			value = ord(self.community[-1])
+			if value & 0x2:
+				actions.append('sample')
+			if value & 0x1:
+				actions.append('terminal')
+			return 'action %s' % '-'.join(actions)
+		elif self.community.startswith('\x80\x08'):
+			return 'redirect %d:%d' % (unpack('!H',self.community[2:4])[0],unpack('!L',self.community[4:])[0])
+		elif self.community.startswith('\x80\x09'):
+			return 'mark %d' % ord(self.community[-1])
+		elif self.community.startswith('\x80\x00'):
+			if self.community[-1] == '\x00':
+				return 'redirect-to-nexthop'
+			return 'copy-to-nexthop'
+		else:
+			h = 0x00
+			for byte in self.community:
+				h <<= 8
+				h += ord(byte)
+			return "0x%016X" % h
 
 	def __len__ (self):
 		return 8
@@ -215,11 +257,24 @@ def _to_FlowCommunity (action,data):
 def to_FlowTrafficRate (asn,rate):
 	return _to_FlowCommunity (0x8006,pack('!H',asn) + pack('!f',rate))
 
-def to_FlowRedirectASN (asn,number):
+def to_FlowTrafficAction (sample,terminal):
+	number = 0
+	if terminal: number += 0x1
+	if sample: number += 0x2
+	return _to_FlowCommunity (0x8007,'\x00\x00\x00\x00\x00' + chr(number))
+
+def to_FlowRedirect (copy):
+	payload = '\x00\x00\x00\x00\x00\x01' if copy else '\x00\x00\x00\x00\x00\x00'
+	return _to_FlowCommunity (0x8000,payload)
+
+def to_FlowRedirectVRFASN (asn,number):
 	return _to_FlowCommunity (0x8008,pack('!H',asn) + pack('!L',number))
 
-def to_FlowRedirectIP (ip,number):
+def to_FlowRedirectVRFIP (ip,number):
 	return _to_FlowCommunity (0x8008,pack('!L',ip) + pack('!H',number))
+
+def to_FlowTrafficMark (dscp):
+	return _to_FlowCommunity (0x8009,'\x00\x00\x00\x00\x00' + chr(dscp))
 
 def to_RouteOriginCommunity (asn,number,hightype=0x01):
 	return ECommunity(chr(hightype) + chr(0x03) + pack('!H',asn) + pack('!L',number))
@@ -232,22 +287,6 @@ def to_RouteTargetCommunity_00 (asn,number):
 def to_RouteTargetCommunity_01 (ipn,number):
 	return ECommunity(chr(0x01) + chr(0x02) + pack('!L',ipn) + pack('!H',number))
 
-#def to_FlowAction (sample,terminal):
-#	bitmask = chr(0)
-#	if terminal: bitmask += 0x01
-#	if sample: bitmask += 0x02
-#	return _to_FlowCommunity (0x8007,chr(0)*5+bitmask)
-#
-## take a string representing a 6 bytes long hexacedimal number like "0x123456789ABC"
-#def to_FlowRedirect (bitmask):
-#	route_target = ''
-#	for p in range(2,14,2): # 2,4,6,8,10,12
-#		route_target += chr(int(bitmask[p:p+2],16))
-#	return _to_FlowCommunity (0x8008,route_target)
-#
-#def to_FlowMark (dscp):
-#	return _to_FlowCommunity (0x8009,chr(0)*5 + chr(dscp))
-#
 #def to_ASCommunity (subtype,asn,data,transitive):
 #	r = chr(0x00)
 #	if transitive: r += chr(0x40)

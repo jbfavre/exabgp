@@ -9,6 +9,7 @@ Copyright (c) 2009-2013  Exa Networks. All rights reserved.
 import socket
 
 from exabgp.protocol.family import AFI,SAFI
+from exabgp.protocol.ip.address import Address
 
 def _detect_afi(ip):
 	if ip.count(':'):
@@ -26,8 +27,16 @@ def inet (ip):
 	safi = _detect_safi(ip)
 	return afi,safi,socket.inet_pton(Inet._af[afi],ip)
 
+def pton (ip):
+	afi = _detect_afi(ip)
+	return socket.inet_pton(Inet._af[afi],ip)
 
-class Inet (object):
+def rawinet (packed):
+	afi = AFI.ipv4 if len(packed) == 4 else AFI.ipv6
+	safi = SAFI.multicast if ord(packed[0]) in Inet._multicast_range else SAFI.unicast
+	return afi,safi,packed
+
+class Inet (Address):
 	_UNICAST = SAFI(SAFI.unicast)
 	_MULTICAST = SAFI(SAFI.multicast)
 
@@ -51,13 +60,13 @@ class Inet (object):
 	}
 
 	def __init__ (self,afi,safi,packed):
-		self.afi = AFI(afi)
-		if safi:
-			self.safi = SAFI(safi)
+		if safi:  # XXX: FIXME: we use a constant which is zero - reference it explicitly
+			Address.__init__(self,afi,safi)
 		elif ord(packed[0]) in self._multicast_range:
-			self.safi = self._MULTICAST
+			Address.__init__(self,afi,self._MULTICAST)
 		else:
-			self.safi = self._UNICAST
+			Address.__init__(self,afi,self._UNICAST)
+
 		self.packed = packed
 		self.ip = socket.inet_ntop(self._af[self.afi],self.packed)
 
@@ -67,14 +76,18 @@ class Inet (object):
 	def __len__ (self):
 		return len(self.packed)
 
-	def __str__ (self):
+	def inet (self):
 		return self.ip
 
-	def __eq__ (self,other):
-		return self.packed == other.packed and self.safi == other.safi
+	def __str__ (self):
+		return self.inet()
 
-	def __ne__ (self,other):
-		return not self.__eq__(other)
+	def __cmp__ (self,other):
+		if self.packed == other.packed:
+			return 0
+		if self.packed < other.packed:
+			return -1
+		return 1
 
 	def __repr__ (self):
 		return "<%s value %s>" % (str(self.__class__).split("'")[1].split('.')[-1],str(self))
