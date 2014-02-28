@@ -1,0 +1,158 @@
+#!/usr/bin/env python
+
+import os
+import pwd
+import asyncore
+import socket
+import errno
+from struct import unpack
+
+def dump (value):
+	def spaced (value):
+		even = None
+		for v in value:
+			if even is False:
+				yield ' '
+			yield '%02X' % ord(v)
+			even = not even
+	return ''.join(spaced(value))
+
+class BGPHandler(asyncore.dispatcher_with_send):
+	wire = False
+	update = True
+
+	keepalive = chr(0xFF)*16 + chr(0x0) + chr(0x13) + chr(0x4)
+
+	_name = {
+		chr(1) : 'OPEN',
+		chr(2) : 'UPDATE',
+		chr(3) : 'NOTIFICATION',
+		chr(4) : 'KEEPALIVE',
+	}
+
+	def isupdate (self,header):
+		return header[18] == chr(2)
+
+	def name (self,header):
+		return self._name.get(header[18],'SOME WEIRD RFC PACKET')
+
+	def routes (self,body):
+		len_w = unpack('!H',body[0:2])[0]
+		len_a = unpack('!H',body[2+len_w:2+len_w+2])[0]
+		prefixes = [ord(_) for _ in body[2+len_w + 2+len_a:]]
+
+		if not prefixes:
+			yield 'no ipv4 announcement'
+
+		while prefixes:
+			l = prefixes.pop(0)
+			r = [0,0,0,0]
+			for index in range(4):
+				if index*8 >= l: break
+				r[index] = prefixes.pop(0)
+			yield '.'.join(str(_) for _ in r) + '/' + str(l)
+
+	def announce (self,*args):
+		print self.ip, self.port, ' '.join(str(_) for _ in args) if len(args) > 1 else args[0]
+
+	def setup (self,ip,port):
+		self.ip = ip
+		self.port = port
+		self.handle_read = self.handle_open
+		return self
+
+	def read_message (self):
+		header = ''
+		while len(header) != 19:
+			try:
+				left = 19-len(header)
+				header += self.recv(left)
+				if self.wire: self.announce("read message header",dump(header))
+				if self.wire and left: self.announce("missing", left)
+				if left == 19-len(header): # ugly
+					# the TCP session is gone.
+					self.announce("TCP connection closed")
+					self.close()
+					return None,None
+			except socket.error, e:
+				if e.args[0] in (errno.EWOULDBLOCK,errno.EAGAIN):
+					continue
+				raise e
+
+		self.announce("read", self.name(header))
+
+		length = unpack('!H',header[16:18])[0] - 19
+		if self.wire: self.announce("waiting for", length, "bytes")
+
+		body = ''
+		while len(body) != length:
+			try:
+				left = length-len(body)
+				body += self.recv(left)
+				if self.wire: self.announce("read message body  ", dump(body))
+				if self.wire and left: self.announce("missing", left)
+			except socket.error, e:
+				if e.args[0] in (errno.EWOULDBLOCK,errno.EAGAIN):
+					continue
+				raise e
+
+		if self.isupdate(header):
+			self.announce("--->", ', '.join(self.routes(body)))
+
+		return header,body
+
+	def handle_open (self):
+		# reply with a IBGP response with the same capability (just changing routerID)
+		header,body = self.read_message()
+		routerid = chr((ord(body[8])+1) & 0xFF)
+		o = header+body[:8]+routerid+body[9:]
+		self.announce("sending open")
+		self.send(o)
+		self.announce("sending keepalive")
+		self.send(self.keepalive)
+		self.handle_read = self.handle_keepalive
+
+	def handle_keepalive (self):
+		header,body = self.read_message()
+		if header is not None:
+			self.announce("sending keepalive")
+			self.send(self.keepalive)
+
+class BGPServer(asyncore.dispatcher):
+	def __init__(self, host, port):
+		asyncore.dispatcher.__init__(self)
+		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+		self.set_reuse_addr()
+		self.bind((host, port))
+		self.listen(5)
+
+	def handle_accept(self):
+		pair = self.accept()
+		if pair is not None:
+			sock, addr = pair
+			print "new BGP connection from", addr
+			handler = BGPHandler(sock).setup(*addr)
+
+def drop ():
+	uid = os.getuid()
+	gid = os.getgid()
+
+	if uid and gid:
+		return
+
+	for name in ['nobody',]:
+		try:
+			user = pwd.getpwnam(name)
+			nuid = int(user.pw_uid)
+			ngid = int(user.pw_uid)
+		except KeyError:
+			pass
+
+	if not gid:
+		os.setgid(ngid)
+	if not uid:
+		os.setuid(nuid)
+
+server = BGPServer('localhost', 179)
+drop()
+asyncore.loop()
