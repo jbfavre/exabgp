@@ -1,3 +1,9 @@
+exabgp (3.3.0-1~bbc74+1) stable; urgency=medium
+
+  * Backport of 3.3.0 for Wheezy by BlaBlaCar
+
+ -- Jean Baptiste Favre <jean-baptiste.favre@blablacar.com>  Fri, 28 Feb 2014 15:23:55 +0100
+
 exabgp (3.3.0-0) unstable; urgency=low
 
   * latest ExaBGP release.
