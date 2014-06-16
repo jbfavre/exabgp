@@ -7,6 +7,7 @@ Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 """
 
 import os
+import re
 import sys
 import time
 import signal
@@ -34,7 +35,6 @@ class Reactor (object):
 		self.port = environment.settings().tcp.port
 
 		self.max_loop_time = environment.settings().reactor.speed
-		self.half_loop_time = self.max_loop_time / 2
 
 		self.logger = Logger()
 		self.daemon = Daemon(self)
@@ -95,9 +95,14 @@ class Reactor (object):
 				sys.exit(1)
 			self.logger.reactor("Listening for BGP session(s) on %s:%d" % (self.ip,self.port))
 
-		if self.daemon.drop_privileges():
+		if not self.daemon.drop_privileges():
 			self.logger.reactor("Could not drop privileges to '%s' refusing to run as root" % self.daemon.user,'critical')
 			self.logger.reactor("Set the environmemnt value exabgp.daemon.user to change the unprivileged user",'critical')
+			return
+
+		# This is required to make sure we can write in the log location as we now have dropped root privileges
+		if not self.logger.restart():
+			self.logger.reactor("Could not setup the logger, aborting",'critical')
 			return
 
 		self.daemon.daemonise()
@@ -137,24 +142,26 @@ class Reactor (object):
 						self._route_update = False
 						self.route_update()
 
-					while self.schedule(self.processes.received()) or self._pending:
-						self._pending = list(self.run_pending(self._pending))
+					peers = self._peers.keys()
 
-						duration = time.time() - start
-						if duration >= self.half_loop_time:
-							break
+					# handle keepalive first and foremost
+					for key in peers:
+						peer = self._peers[key]
+						if peer.established():
+							if peer.keepalive() is False:
+								self.logger.reactor("problem with keepalive for peer %s " % peer.neighbor.name(),'error')
+								# unschedule the peer
 
 					# Handle all connection
-					peers = self._peers.keys()
 					ios = []
 					while peers:
 						for key in peers[:]:
 							peer = self._peers[key]
 							action = peer.run()
-							# .run() returns:
-							# * True if it wants to be called again
-							# * None if it should be called again but has no work atm
-							# * False if it is finished and is closing down, or restarting
+							# .run() returns an ACTION enum:
+							# * immediate if it wants to be called again
+							# * later if it should be called again but has no work atm
+							# * close if it is finished and is closing down, or restarting
 							if action == ACTION.close:
 								self.unschedule(peer)
 								peers.remove(key)
@@ -162,6 +169,10 @@ class Reactor (object):
 								ios.extend(peer.sockets())
 								# no need to come back to it before a a full cycle
 								peers.remove(key)
+
+							# give some time to our local processes
+							if self.schedule(self.processes.received()) or self._pending:
+								self._pending = list(self.run_pending(self._pending))
 
 						duration = time.time() - start
 						if duration >= self.max_loop_time:
@@ -214,18 +225,22 @@ class Reactor (object):
 								connection.notification(6,5,'could not accept the connection')
 								connection.close()
 
-					if ios:
-						delay = max(start+self.max_loop_time-time.time(),0.0)
-						try:
-							read,_,_ = select.select(ios,[],[],delay)
-						except select.error,e:
-							errno,message = e.args
-							if not errno in error.block:
-								raise e
-
 					delay = max(start+self.max_loop_time-time.time(),0.0)
+
+					# if we are not already late in this loop !
 					if delay:
-						time.sleep(delay)
+						# some peers indicated that they wished to be called later
+						# so we are waiting for an update on their socket / pipe for up to the rest of the second
+						if ios:
+							try:
+								read,_,_ = select.select(ios,[],[],delay)
+							except select.error,e:
+								errno,message = e.args
+								if not errno in error.block:
+									raise e
+							# we can still loop here very fast if something goes wrogn with the FD
+						else:
+							time.sleep(delay)
 
 				self.processes.terminate()
 				self.daemon.removepid()
@@ -458,7 +473,7 @@ class Reactor (object):
 
 		def match_neighbor (description,name):
 			for string in description:
-				if not string in name:
+				if re.search('(^|[\s])%s($|[\s,])' % re.escape(string), name) is None:
 					return False
 			return True
 
