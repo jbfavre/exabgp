@@ -12,7 +12,7 @@ from exabgp.reactor.network.outgoing import Outgoing
 from exabgp.reactor.network.error import NotifyError
 
 from exabgp.bgp.message import Message
-from exabgp.bgp.message.nop import NOP
+from exabgp.bgp.message.nop import NOP,_NOP
 from exabgp.bgp.message.unknown import UnknownMessageFactory
 from exabgp.bgp.message.open import Open,OpenFactory
 from exabgp.bgp.message.open.capability import Capabilities
@@ -33,7 +33,6 @@ from exabgp.logger import Logger,FakeLogger
 # This is the number of chuncked message we are willing to buffer, not the number of routes
 MAX_BACKLOG = 15000
 
-_NOP = NOP()
 _UPDATE = Update([],'')
 _OPERATIONAL = Operational(0x00)
 
@@ -124,12 +123,13 @@ class Protocol (object):
 	# Read from network .......................................................
 
 	def read_message (self,comment=''):
-		try:
-			for length,msg,header,body in self.connection.reader():
-				if not length:
-					yield _NOP
-		except NotifyError,n:
-			raise Notify(n.code,n.subcode,str(n))
+		for length,msg,header,body,notify in self.connection.reader():
+			if notify:
+				if self.neighbor.api.receive_packets:
+					self.peer.reactor.processes.receive(self.peer.neighbor.peer_address,msg,header,body)
+				raise Notify(notify.code,notify.subcode,str(notify))
+			if not length:
+				yield _NOP
 
 		if self.neighbor.api.receive_packets:
 			self.peer.reactor.processes.receive(self.peer.neighbor.peer_address,msg,header,body)
