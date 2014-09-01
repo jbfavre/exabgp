@@ -6,44 +6,43 @@ Created by Thomas Mangin on 2009-11-05.
 Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 """
 
-from exabgp.protocol.ip.inet import Inet,rawinet
-from exabgp.bgp.message.update.attribute.id import AttributeID
-from exabgp.bgp.message.update.attribute import Flag,Attribute
+from exabgp.protocol.ip import IP
+from exabgp.protocol.ip import NoIP
+from exabgp.bgp.message.update.attribute.attribute import Attribute
 
-# =================================================================== NextHop (3)
+# ================================================================== NextHop (3)
 
-# from struct import pack
-# def cachedNextHop (afi,safi,packed):
-# 	cache = pack('HB%ss' % len(packed),afi,safi,packed)
-# 	if cache in NextHop.cache:
-# 		return NextHop.cache[cache]
-# 	instance = NextHop(afi,safi,packed)
-# 	if NextHop.caching:
-# 		NextHop.cache[cache] = instance
-# 	return instance
+# The inheritance order is important and attribute MUST be first for the righ register to be called
+# At least until we rename them to be more explicit
 
-def cachedNextHop (packed):
-	if not packed:
-		return packed
-
-	if packed in NextHop.cache:
-		return NextHop.cache[packed]
-	instance = NextHop(packed)
-
-	if NextHop.caching:
-		NextHop.cache[packed] = instance
-	return instance
-
-class NextHop (Attribute,Inet):
-	ID = AttributeID.NEXT_HOP
-	FLAG = Flag.TRANSITIVE
+class NextHop (Attribute,IP):
+	ID = Attribute.ID.NEXT_HOP
+	FLAG = Attribute.Flag.TRANSITIVE
 	MULTIPLE = False
+	CACHING = True
 
-	cache = {}
-	caching = False
+	def __init__ (self,ip,packed=None):
+		# Need to conform to from IP interface
+		self.ip = ip
+		self.packed = packed if packed else IP.create(ip).pack()
 
-	def __init__ (self,packed):
-		Inet.__init__(self,*rawinet(packed))
-
-	def pack (self,asn4=None):
+	def pack (self,negotiated=None):
 		return self._attribute(self.packed)
+
+	def __cmp__(self,other):
+		if not isinstance(other,self.__class__):
+			return -1
+		if self.pack() != other.pack():
+			return -1
+		return 0
+
+	@classmethod
+	def unpack (cls,data,negotiated=None):
+		if not data:
+			return NoIP
+		return IP.unpack(data,NextHop)
+
+	def __str__ (self):
+		return IP.__str__(self)
+
+NextHop.register_attribute()

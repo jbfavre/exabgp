@@ -7,17 +7,25 @@ Copyright (c) 2013-2013 Exa Networks. All rights reserved.
 """
 
 import time
-import struct
 import socket
 import select
 import platform
 
+from struct import pack,calcsize
+
 from exabgp.util.errstr import errstr
 
 from exabgp.protocol.family import AFI
-from exabgp.reactor.network.error import errno,error
+from exabgp.protocol.ip import IP
+from exabgp.reactor.network.error import errno
+from exabgp.reactor.network.error import error
 
-from .error import NotConnected,BindingError,MD5Error,NagleError,TTLError,AsyncError
+from .error import NotConnected
+from .error import BindingError
+from .error import MD5Error
+from .error import NagleError
+from .error import TTLError
+from .error import AsyncError
 
 from exabgp.logger import Logger
 
@@ -62,6 +70,33 @@ def connect (io,ip,port,afi,md5):
 		raise NotConnected('Could not connect to peer %s:%d (%s)' % (ip,port,errstr(e)))
 
 
+# http://lxr.free-electrons.com/source/include/uapi/linux/tcp.h#L197
+#
+# #define TCP_MD5SIG_MAXKEYLEN    80
+#
+# struct tcp_md5sig {
+# 	struct __kernel_sockaddr_storage tcpm_addr;     /* address associated */  128
+# 	__u16   __tcpm_pad1;                            /* zero */                  2
+# 	__u16   tcpm_keylen;                            /* key length */            2
+# 	__u32   __tcpm_pad2;                            /* zero */                  4
+# 	__u8    tcpm_key[TCP_MD5SIG_MAXKEYLEN];         /* key (binary) */         80
+# }
+#
+# #define _K_SS_MAXSIZE   128
+#
+# #define _K_SS_ALIGNSIZE (__alignof__ (struct sockaddr *))
+# /* Implementation specific desired alignment */
+#
+# typedef unsigned short __kernel_sa_family_t;
+#
+# struct __kernel_sockaddr_storage {
+# 	__kernel_sa_family_t    ss_family;              /* address family */
+# 	/* Following field(s) are implementation specific */
+# 	char    __data[_K_SS_MAXSIZE - sizeof(unsigned short)];
+# 	/* space to achieve desired size, */
+# 	/* _SS_MAXSIZE value minus size of ss_family */
+# } __attribute__ ((aligned(_K_SS_ALIGNSIZE)));   /* force desired alignment */
+
 def MD5 (io,ip,port,afi,md5):
 	if md5:
 		os = platform.system()
@@ -85,23 +120,30 @@ def MD5 (io,ip,port,afi,md5):
 				)
 		elif os == 'Linux':
 			try:
-				TCP_MD5SIG = 14
-				TCP_MD5SIG_MAXKEYLEN = 80
-
+				# __kernel_sockaddr_storage
+				n_af   = IP.toaf(ip)
+				n_addr = IP.pton(ip)
 				n_port = socket.htons(port)
+
+				# pack 'x' is padding, so we want the struct
+				# Do not use '!' for the pack, the network (big) endian switch in
+				# struct.pack is fighting against inet_pton and htons (note the n)
+
 				if afi == AFI.ipv4:
-					SS_PADSIZE = 120
-					n_addr = socket.inet_pton(socket.AF_INET, ip)
-					tcp_md5sig = 'HH4s%dx2xH4x%ds' % (SS_PADSIZE, TCP_MD5SIG_MAXKEYLEN)
-					md5sig = struct.pack(tcp_md5sig, socket.AF_INET, n_port, n_addr, len(md5), md5)
-				if afi == AFI.ipv6:
-					SS_PADSIZE = 100
+					# SS_MAXSIZE is 128 but addr_family, port and ipaddr (8 bytes total) are written independently of the padding
+					SS_MAXSIZE_PADDING = 128 - calcsize('HH4s')  # 8
+					sockaddr = pack('HH4s%dx' % SS_MAXSIZE_PADDING, socket.AF_INET, n_port, n_addr)
+				else:
+					SS_MAXSIZE_PADDING = 128 - calcsize('HI16sI')  # 28
 					SIN6_FLOWINFO = 0
 					SIN6_SCOPE_ID = 0
-					n_addr = socket.inet_pton(socket.AF_INET6, ip)
-					tcp_md5sig = 'HHI16sI%dx2xH4x%ds' % (SS_PADSIZE, TCP_MD5SIG_MAXKEYLEN)
-					md5sig = struct.pack(tcp_md5sig, socket.AF_INET6, n_port, SIN6_FLOWINFO, n_addr, SIN6_SCOPE_ID, len(md5), md5)
-				io.setsockopt(socket.IPPROTO_TCP, TCP_MD5SIG, md5sig)
+					sockaddr = pack('HI16sI%dx' % SS_MAXSIZE_PADDING, n_af, n_port, SIN6_FLOWINFO, n_addr, SIN6_SCOPE_ID)
+
+				TCP_MD5SIG_MAXKEYLEN = 80
+				key = pack('2xH4x%ds' % TCP_MD5SIG_MAXKEYLEN, len(md5), md5)
+
+				TCP_MD5SIG = 14
+				io.setsockopt(socket.IPPROTO_TCP, TCP_MD5SIG, sockaddr + key)
 			except socket.error,e:
 				raise MD5Error('This linux machine does not support TCP_MD5SIG, you can not use MD5 (%s)' % errstr(e))
 		else:

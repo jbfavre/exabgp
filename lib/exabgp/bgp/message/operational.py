@@ -6,13 +6,16 @@ Created by Thomas Mangin on 2013-09-01.
 Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 """
 
-from struct import pack,unpack
+from struct import pack
+from struct import unpack
 
-from exabgp.protocol.family import AFI,SAFI
+from exabgp.protocol.family import AFI
+from exabgp.protocol.family import SAFI
 from exabgp.bgp.message.open.routerid import RouterID
 from exabgp.bgp.message import Message
 
-# =================================================================== Operational
+# ========================================================================= Type
+#
 
 MAX_ADVISORY = 2048  # 2K
 
@@ -29,32 +32,43 @@ class Type (int):
 	def __str__ (self):
 		pass
 
-class OperationalType:
-	# ADVISE
-	ADM  = 0x01  # 01: Advisory Demand Message
-	ASM  = 0x02  # 02: Advisory Static Message
-	# STATE
-	RPCQ = 0x03  # 03: Reachable Prefix Count Request
-	RPCP = 0x04  # 04: Reachable Prefix Count Reply
-	APCQ = 0x05  # 05: Adj-Rib-Out Prefix Count Request
-	APCP = 0x06  # 06: Adj-Rib-Out Prefix Count Reply
-	LPCQ = 0x07  # 07: BGP Loc-Rib Prefix Count Request
-	LPCP = 0x08  # 08: BGP Loc-Rib Prefix Count Reply
-	SSQ  = 0x09  # 09: Simple State Request
-	# DUMP
-	DUP  = 0x0A  # 10: Dropped Update Prefixes
-	MUP  = 0x0B  # 11: Malformed Update Prefixes
-	MUD  = 0x0C  # 12: Malformed Update Dump
-	SSP  = 0x0D  # 13: Simple State Response
-	# CONTROL
-	MP   = 0xFFFE  # 65534: Max Permitted
-	NS   = 0xFFFF  # 65535: Not Satisfied
+
+# ================================================================== Operational
+#
 
 class Operational (Message):
-	TYPE = chr(0x06)  # next free Message Type, as IANA did not assign one yet.
+	ID = Message.ID.OPERATIONAL
+	TYPE = chr(Message.ID.OPERATIONAL)
+
+	registered_operational = dict()
+
 	has_family = False
 	has_routerid = False
 	is_fault = False
+
+	class ID:
+		__slots__ = []
+
+		# ADVISE
+		ADM  = 0x01  # 01: Advisory Demand Message
+		ASM  = 0x02  # 02: Advisory Static Message
+		# STATE
+		RPCQ = 0x03  # 03: Reachable Prefix Count Request
+		RPCP = 0x04  # 04: Reachable Prefix Count Reply
+		APCQ = 0x05  # 05: Adj-Rib-Out Prefix Count Request
+		APCP = 0x06  # 06: Adj-Rib-Out Prefix Count Reply
+		LPCQ = 0x07  # 07: BGP Loc-Rib Prefix Count Request
+		LPCP = 0x08  # 08: BGP Loc-Rib Prefix Count Reply
+		SSQ  = 0x09  # 09: Simple State Request
+		# DUMP
+		DUP  = 0x0A  # 10: Dropped Update Prefixes
+		MUP  = 0x0B  # 11: Malformed Update Prefixes
+		MUD  = 0x0C  # 12: Malformed Update Dump
+		SSP  = 0x0D  # 13: Simple State Response
+		# CONTROL
+		MP   = 0xFFFE  # 65534: Max Permitted
+		NS   = 0xFFFF  # 65535: Not Satisfied
+
 
 	def __init__ (self,what):
 		Message.__init__(self)
@@ -72,6 +86,44 @@ class Operational (Message):
 
 	def extensive (self):
 		return 'operational %s' % self.name
+
+	@classmethod
+	def register_operational (cls):
+		cls.registered_operational[cls.code] = (cls.category,cls)
+
+	@classmethod
+	def unpack_message (cls,data,negotiated):
+		what = Type(unpack('!H',data[0:2])[0])
+		length = unpack('!H',data[2:4])[0]
+
+		decode,klass = cls.registered_operational.get(what,('unknown',None))
+
+		if decode == 'advisory':
+			afi = unpack('!H',data[4:6])[0]
+			safi = ord(data[6])
+			data = data[7:length+4]
+			return klass(afi,safi,data)
+		elif decode == 'query':
+			afi = unpack('!H',data[4:6])[0]
+			safi = ord(data[6])
+			routerid = RouterID.unpack(data[7:11])
+			sequence = unpack('!L',data[11:15])[0]
+			return klass(afi,safi,routerid,sequence)
+		elif decode == 'counter':
+			afi = unpack('!H',data[4:6])[0]
+			safi = ord(data[6])
+			routerid = RouterID.unpack(data[7:11])
+			sequence = unpack('!L',data[11:15])[0]
+			counter = unpack('!L',data[15:19])[0]
+			return klass(afi,safi,routerid,sequence,counter)
+		else:
+			print 'ignoring ATM this kind of message'
+
+Operational.register_message()
+
+
+# ============================================================ OperationalFamily
+#
 
 class OperationalFamily (Operational):
 	has_family = True
@@ -95,6 +147,9 @@ class OperationalFamily (Operational):
 	def message (self,negotiated):
 		return self._message(self.data)
 
+
+# =================================================== SequencedOperationalFamily
+#
 
 class SequencedOperationalFamily (OperationalFamily):
 	__sequence_number = {}
@@ -121,6 +176,9 @@ class SequencedOperationalFamily (OperationalFamily):
 		))
 
 
+# =========================================================================== NS
+#
+
 class NS:
 	MALFORMED   = 0x01  # Request TLV Malformed
 	UNSUPPORTED = 0x02  # TLV Unsupported for this neighbor
@@ -135,7 +193,7 @@ class NS:
 		def __init__ (self,afi,safi,sequence):
 			OperationalFamily.__init__(
 				self,
-				OperationalType.NS,
+				Operational.ID.NS,
 				afi,safi,
 				'%s%s' % (sequence,self.ERROR_SUBCODE)
 			)
@@ -169,47 +227,58 @@ class NS:
 		ERROR_SUBCODE = '\x00\x06'  # pack('!H',NOTFOUND)
 
 
+# ===================================================================== Advisory
+#
+
 class Advisory:
 	class _Advisory (OperationalFamily):
+		category = 'advisory'
+
 		def extensive (self):
 			return 'operational %s afi %s safi %s "%s"' % (self.name,self.afi,self.safi,self.data)
 
 	class ADM (_Advisory):
 		name = 'ADM'
+		code = Operational.ID.ADM
 
 		def __init__ (self,afi,safi,advisory,routerid=None):
 			utf8 = advisory.encode('utf-8')
 			if len(utf8) > MAX_ADVISORY:
 				utf8 = utf8[:MAX_ADVISORY-3] + '...'.encode('utf-8')
 			OperationalFamily.__init__(
-				self,OperationalType.ADM,
+				self,Operational.ID.ADM,
 				afi,safi,
 				utf8
 			)
 
 	class ASM (_Advisory):
 		name = 'ASM'
+		code = Operational.ID.ASM
 
 		def __init__ (self,afi,safi,advisory,routerid=None):
 			utf8 = advisory.encode('utf-8')
 			if len(utf8) > MAX_ADVISORY:
 				utf8 = utf8[:MAX_ADVISORY-3] + '...'.encode('utf-8')
 			OperationalFamily.__init__(
-				self,OperationalType.ASM,
+				self,Operational.ID.ASM,
 				afi,safi,
 				utf8
 			)
+
+Advisory.ADM.register_operational()
+Advisory.ASM.register_operational()
 
 # a = Advisory.ADM(1,1,'string 1')
 # print a.extensive()
 # b = Advisory.ASM(1,1,'string 2')
 # print b.extensive()
 
+# ======================================================================== Query
+#
 
 class Query:
 	class _Query (SequencedOperationalFamily):
-		name = None
-		code = None
+		category = 'query'
 
 		def __init__ (self,afi,safi,routerid,sequence):
 			SequencedOperationalFamily.__init__(
@@ -229,18 +298,28 @@ class Query:
 
 	class RPCQ (_Query):
 		name = 'RPCQ'
-		code = OperationalType.RPCQ
+		code = Operational.ID.RPCQ
 
 	class APCQ (_Query):
 		name = 'APCQ'
-		code = OperationalType.APCQ
+		code = Operational.ID.APCQ
 
 	class LPCQ (_Query):
 		name = 'LPCQ'
-		code = OperationalType.LPCQ
+		code = Operational.ID.LPCQ
+
+Query.RPCQ.register_operational()
+Query.APCQ.register_operational()
+Query.LPCQ.register_operational()
+
+
+# ===================================================================== Response
+#
 
 class Response:
 	class _Counter (SequencedOperationalFamily):
+		category = 'counter'
+
 		def __init__ (self,afi,safi,routerid,sequence,counter):
 			self.counter = counter
 			SequencedOperationalFamily.__init__(
@@ -262,61 +341,28 @@ class Response:
 
 	class RPCP (_Counter):
 		name = 'RPCP'
-		code = OperationalType.RPCP
+		code = Operational.ID.RPCP
 
 	class APCP (_Counter):
 		name = 'APCP'
-		code = OperationalType.APCP
+		code = Operational.ID.APCP
 
 	class LPCP (_Counter):
 		name = 'LPCP'
-		code = OperationalType.LPCP
+		code = Operational.ID.LPCP
+
+
+Response.RPCP.register_operational()
+Response.APCP.register_operational()
+Response.LPCP.register_operational()
 
 # c = State.RPCQ(1,1,'82.219.0.1',10)
 # print c.extensive()
 # d = State.RPCP(1,1,'82.219.0.1',10,10000)
 # print d.extensive()
 
+# ========================================================================= Dump
+#
+
 class Dump:
 	pass
-
-OperationalGroup = {
-	OperationalType.ADM: ('advisory', Advisory.ADM),
-	OperationalType.ASM: ('advisory', Advisory.ASM),
-
-	OperationalType.RPCQ: ('query', Query.RPCQ),
-	OperationalType.RPCP: ('counter', Response.RPCP),
-
-	OperationalType.APCQ: ('query', Query.APCQ),
-	OperationalType.APCP: ('counter', Response.APCP),
-
-	OperationalType.LPCQ: ('query', Query.LPCQ),
-	OperationalType.LPCP: ('counter', Response.LPCP),
-}
-
-def OperationalFactory (data):
-	what = Type(unpack('!H',data[0:2])[0])
-	length = unpack('!H',data[2:4])[0]
-
-	decode,klass = OperationalGroup.get(what,('unknown',None))
-
-	if decode == 'advisory':
-		afi = unpack('!H',data[4:6])[0]
-		safi = ord(data[6])
-		data = data[7:length+4]
-		return klass(afi,safi,data)
-	elif decode == 'query':
-		afi = unpack('!H',data[4:6])[0]
-		safi = ord(data[6])
-		routerid = RouterID('.'.join(str(ord(_)) for _ in data[7:11]))
-		sequence = unpack('!L',data[11:15])[0]
-		return klass(afi,safi,routerid,sequence)
-	elif decode == 'counter':
-		afi = unpack('!H',data[4:6])[0]
-		safi = ord(data[6])
-		routerid = RouterID('.'.join(str(ord(_)) for _ in data[7:11]))
-		sequence = unpack('!L',data[11:15])[0]
-		counter = unpack('!L',data[15:19])[0]
-		return klass(afi,safi,routerid,sequence,counter)
-	else:
-		print 'ignoring ATM this kind of message'

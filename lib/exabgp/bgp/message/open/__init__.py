@@ -13,7 +13,7 @@ from exabgp.bgp.message.open.version import Version
 from exabgp.bgp.message.open.asn import ASN
 from exabgp.bgp.message.open.holdtime import HoldTime
 from exabgp.bgp.message.open.routerid import RouterID
-from exabgp.bgp.message.open.capability import CapabilitiesFactory
+from exabgp.bgp.message.open.capability import Capabilities
 from exabgp.bgp.message.notification import Notify
 
 # =================================================================== Open
@@ -46,7 +46,8 @@ from exabgp.bgp.message.notification import Notify
 
 
 class Open (Message):
-	TYPE = chr(Message.Type.OPEN)
+	ID = Message.ID.OPEN
+	TYPE = chr(Message.ID.OPEN)
 
 	def __init__ (self,version,asn,router_id,capabilities,hold_time):
 		self.version = Version(version)
@@ -67,14 +68,17 @@ class Open (Message):
 	def __str__ (self):
 		return "OPEN version=%d asn=%d hold_time=%s router_id=%s capabilities=[%s]" % (self.version, self.asn, self.hold_time, self.router_id,self.capabilities)
 
-def OpenFactory (data):
-	version = ord(data[0])
-	if version != 4:
-		# Only version 4 is supported nowdays..
-		raise Notify(2,1,data[0])
-	asn = unpack('!H',data[1:3])[0]
-	hold_time = unpack('!H',data[3:5])[0]
-	numeric = unpack('!L',data[5:9])[0]
-	router_id = "%d.%d.%d.%d" % (numeric>>24,(numeric>>16)&0xFF,(numeric>>8)&0xFF,numeric&0xFF)
-	capabilities = CapabilitiesFactory(data[9:])
-	return Open(version,asn,router_id,capabilities,hold_time)
+	@classmethod
+	def unpack_message (cls,data,negotiated):
+		version = ord(data[0])
+		if version != 4:
+			# Only version 4 is supported nowdays..
+			raise Notify(2,1,data[0])
+		asn = unpack('!H',data[1:3])[0]
+		hold_time = unpack('!H',data[3:5])[0]
+		numeric = unpack('!L',data[5:9])[0]
+		router_id = "%d.%d.%d.%d" % (numeric>>24,(numeric>>16)&0xFF,(numeric>>8)&0xFF,numeric&0xFF)
+		capabilities = Capabilities.unpack(data[9:])
+		return cls(version,asn,router_id,capabilities,hold_time)
+
+Open.register_message()

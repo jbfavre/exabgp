@@ -20,7 +20,7 @@ from struct import unpack
 from exabgp.version import version
 from exabgp.reactor.network.error import error
 from exabgp.reactor.api.encoding import JSON
-from exabgp.bgp.message.update.factory import UpdateFactory
+from exabgp.bgp.message.update import Update
 
 from exabgp.bmp.header import Header
 from exabgp.bmp.message import Message
@@ -44,7 +44,7 @@ class BMPHandler (asyncore.dispatcher_with_send):
 		self.fd = env.fd
 		self.ip = ip
 		self.port = port
-		self.json = JSON('3.0')
+		self.json = JSON('3.4.0')
 		return self
 
 	def _read_data (self,number):
@@ -101,7 +101,7 @@ class BMPHandler (asyncore.dispatcher_with_send):
 			return
 
 		negotiated = FakeNegotiated(header,self.asn4)
-		update = UpdateFactory(negotiated,bgp_body)
+		update = Update.unpack_message(bgp_body,negotiated)
 		if self.use_json:
 			print >> self.fd, self.json.bmp(self.ip,update)
 		else:

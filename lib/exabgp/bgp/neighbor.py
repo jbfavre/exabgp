@@ -10,6 +10,7 @@ from collections import deque
 
 from exabgp.protocol.family import AFI
 
+from exabgp.bgp.message import Message
 from exabgp.bgp.message.open.holdtime import HoldTime
 from exabgp.bgp.message.open.capability import AddPath
 
@@ -55,6 +56,14 @@ class Neighbor (object):
 
 		self.messages = deque()
 		self.refresh = deque()
+
+
+	def identificator (self):
+		# It is possible to :
+		# - have multiple exabgp toward one peer on the same host ( use of pid )
+		# - have more than once connection toward a peer
+		# - each connection has it own neihgbor (hence why identificator is not in Protocol)
+		return str(self.peer_address)
 
 	def make_rib (self):
 		self.rib = RIB(self.name(),self.adjribout,self._families)
@@ -141,13 +150,28 @@ class Neighbor (object):
 		for afi,safi in self.families():
 			families += '\n    %s %s;' % (afi.name(),safi.name())
 
-		_api  = []
-		_api.extend(['    neighbor-changes;\n',]    if self.api.neighbor_changes else [])
-		_api.extend(['    receive-packets;\n',]     if self.api.receive_packets else [])
-		_api.extend(['    send-packets;\n',]        if self.api.send_packets else [])
-		_api.extend(['    receive-routes;\n',]      if self.api.receive_routes else [])
-		_api.extend(['    receive-operational;\n',] if self.api.receive_operational else [])
-		api = ''.join(_api)
+		_receive  = []
+
+		_receive.extend(['      parsed;\n',]           if self.api['receive-parsed'] else [])
+		_receive.extend(['      packets;\n',]          if self.api['receive-packets'] else [])
+		_receive.extend(['      consolidate;\n',]      if self.api['consolidate'] else [])
+
+		_receive.extend(['      neighbor-changes;\n',] if self.api['neighbor-changes'] else [])
+		_receive.extend(['      notification;\n',]     if self.api[Message.ID.NOTIFICATION] else [])
+		_receive.extend(['      open;\n',]             if self.api[Message.ID.OPEN] else [])
+		_receive.extend(['      keepalive;\n',]        if self.api[Message.ID.KEEPALIVE] else [])
+		_receive.extend(['      update;\n',]           if self.api[Message.ID.UPDATE] else [])
+		_receive.extend(['      refresh;\n',]          if self.api[Message.ID.ROUTE_REFRESH] else [])
+		_receive.extend(['      operational;\n',]      if self.api[Message.ID.OPERATIONAL] else [])
+		_receive.extend(['      parsed;\n',]           if self.api['receive-parsed'] else [])
+		_receive.extend(['      packets;\n',]          if self.api['receive-packets'] else [])
+		_receive.extend(['      consolidate;\n',]      if self.api['consolidate'] else [])
+
+		receive = ''.join(_receive)
+
+		_send = []
+		_send.extend(['      packets;\n',]          if self.api['send-packets'] else [])
+		send = ''.join(_send)
 
 		return """\
 neighbor %s {
@@ -163,7 +187,7 @@ neighbor %s {
   family {%s
   }
   process {
-%s  }%s
+%s%s  }%s
 }""" % (
 	self.peer_address,
 	self.description,
@@ -173,20 +197,21 @@ neighbor %s {
 	self.peer_as,
 	'\n  passive;\n' if self.passive else '',
 	self.hold_time,
-	'  group-updates: %s;\n' % self.group_updates if self.group_updates else '',
-	'  auto-flush: %s;\n' % 'true' if self.flush else 'false',
-	'  adj-rib-out: %s;\n' % 'true' if self.adjribout else 'false',
-	'  md5: %d;\n' % self.ttl if self.ttl else '',
-	'  ttl-security: %d;\n' % self.ttl if self.ttl else '',
-	'    asn4 enable;\n' if self.asn4 else '    asn4 disable;\n',
-	'    route-refresh;\n' if self.route_refresh else '',
-	'    graceful-restart %s;\n' % self.graceful_restart if self.graceful_restart else '',
-	'    add-path %s;\n' % AddPath.string[self.add_path] if self.add_path else '',
-	'    multi-session;\n' if self.multisession else '',
-	'    operational;\n' if self.operational else '',
-	'    aigp;\n' if self.aigp else '',
+	'  group-updates: %s;\n' % (self.group_updates if self.group_updates else ''),
+	'  auto-flush: %s;\n' % ('true' if self.flush else 'false'),
+	'  adj-rib-out: %s;\n' % ('true' if self.adjribout else 'false'),
+	'  md5 "%s";\n' % self.md5 if self.md5 else '',
+	'  ttl-security: %s;\n' % (self.ttl if self.ttl else ''),
+	'    asn4 %s;\n' % ('enable' if self.asn4 else 'disable'),
+	'    route-refresh %s;\n' % ('enable' if self.route_refresh else 'disable'),
+	'    graceful-restart %s;\n' % (self.graceful_restart if self.graceful_restart else 'disable'),
+	'    add-path %s;\n' % (AddPath.string[self.add_path] if self.add_path else 'disable'),
+	'    multi-session %s;\n' % ('enable' if self.multisession else 'disable'),
+	'    operational %s;\n' % ('enable' if self.operational else 'disable'),
+	'    aigp %s;\n' % ('enable' if self.aigp else 'disable'),
 	families,
-	api,
+	'    receive {\n%s    }\n' % receive if receive else '',
+	'    send {\n%s    }\n' % send if send else '',
 	changes
 )
 

@@ -11,10 +11,18 @@ from exabgp.bgp.message import Message
 # =================================================================== KeepAlive
 
 class KeepAlive (Message):
-	TYPE = chr(Message.Type.KEEPALIVE)
+	ID = Message.ID.KEEPALIVE
+	TYPE = chr(Message.ID.KEEPALIVE)
 
 	def message (self):
 		return self._message('')
 
 	def __str__ (self):
 		return "KEEPALIVE"
+
+	@classmethod
+	def unpack_message (cls,data,negotiated):
+		# XXX: FIXME: raise Notify if data has something
+		return cls()
+
+KeepAlive.register_message()

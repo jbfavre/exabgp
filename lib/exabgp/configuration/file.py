@@ -15,47 +15,85 @@ import shlex
 
 from pprint import pformat
 from copy import deepcopy
-from struct import pack,unpack
+from struct import pack
+from struct import unpack
 
 from exabgp.util.ip import isipv4
 
 from exabgp.configuration.environment import environment
 
-from exabgp.protocol.family import AFI,SAFI,known_families
+from exabgp.protocol.family import AFI
+from exabgp.protocol.family import SAFI
+from exabgp.protocol.family import known_families
 
 from exabgp.bgp.neighbor import Neighbor
 
-from exabgp.protocol.ip.inet import Inet,inet,pton
-from exabgp.bgp.message.direction import OUT
+from exabgp.protocol.ip import IP
+from exabgp.protocol.ip import NoIP
+from exabgp.bgp.message import OUT
 
 from exabgp.bgp.message.open.asn import ASN
 from exabgp.bgp.message.open.holdtime import HoldTime
 from exabgp.bgp.message.open.routerid import RouterID
 
 from exabgp.bgp.message.update.nlri.prefix import Prefix
-from exabgp.bgp.message.update.nlri.bgp import NLRI,PathInfo,Labels,RouteDistinguisher
-from exabgp.bgp.message.update.nlri.flow import BinaryOperator,NumericOperator,FlowNLRI,Flow4Source,Flow4Destination,Flow6Source,Flow6Destination,FlowSourcePort,FlowDestinationPort,FlowAnyPort,FlowIPProtocol,FlowNextHeader,FlowTCPFlag,FlowFragment,FlowPacketLength,FlowICMPType,FlowICMPCode,FlowDSCP,FlowTrafficClass,FlowFlowLabel
+from exabgp.bgp.message.update.nlri.prefix import PathInfo
+from exabgp.bgp.message.update.nlri.mpls import MPLS
+from exabgp.bgp.message.update.nlri.mpls import Labels
+from exabgp.bgp.message.update.nlri.mpls import RouteDistinguisher
+from exabgp.bgp.message.update.nlri.vpls import VPLS
+from exabgp.bgp.message.update.nlri.flow import BinaryOperator
+from exabgp.bgp.message.update.nlri.flow import NumericOperator
+from exabgp.bgp.message.update.nlri.flow import Flow
+from exabgp.bgp.message.update.nlri.flow import Flow4Source
+from exabgp.bgp.message.update.nlri.flow import Flow4Destination
+from exabgp.bgp.message.update.nlri.flow import Flow6Source
+from exabgp.bgp.message.update.nlri.flow import Flow6Destination
+from exabgp.bgp.message.update.nlri.flow import FlowSourcePort
+from exabgp.bgp.message.update.nlri.flow import FlowDestinationPort
+from exabgp.bgp.message.update.nlri.flow import FlowAnyPort
+from exabgp.bgp.message.update.nlri.flow import FlowIPProtocol
+from exabgp.bgp.message.update.nlri.flow import FlowNextHeader
+from exabgp.bgp.message.update.nlri.flow import FlowTCPFlag
+from exabgp.bgp.message.update.nlri.flow import FlowFragment
+from exabgp.bgp.message.update.nlri.flow import FlowPacketLength
+from exabgp.bgp.message.update.nlri.flow import FlowICMPType
+from exabgp.bgp.message.update.nlri.flow import FlowICMPCode
+from exabgp.bgp.message.update.nlri.flow import FlowDSCP
+from exabgp.bgp.message.update.nlri.flow import FlowTrafficClass
+from exabgp.bgp.message.update.nlri.flow import FlowFlowLabel
 
-from exabgp.bgp.message.update.attribute.id import AttributeID
+from exabgp.bgp.message.update.attribute.attribute import Attribute
 from exabgp.bgp.message.update.attribute.origin import Origin
-from exabgp.bgp.message.update.attribute.nexthop import cachedNextHop
+from exabgp.bgp.message.update.attribute.nexthop import NextHop
 from exabgp.bgp.message.update.attribute.aspath import ASPath
 from exabgp.bgp.message.update.attribute.med import MED
 from exabgp.bgp.message.update.attribute.localpref import LocalPreference
 from exabgp.bgp.message.update.attribute.atomicaggregate import AtomicAggregate
 from exabgp.bgp.message.update.attribute.aggregator import Aggregator
-from exabgp.bgp.message.update.attribute.communities import Community,cachedCommunity,Communities,ECommunity,ECommunities,to_ExtendedCommunity,to_FlowTrafficRate,to_FlowRedirectVRFASN,to_FlowRedirectVRFIP,to_FlowRedirect,to_FlowTrafficMark,to_FlowTrafficAction
+
+from exabgp.bgp.message.update.attribute.community import Community
+from exabgp.bgp.message.update.attribute.community import Communities
+from exabgp.bgp.message.update.attribute.community import ExtendedCommunities
+from exabgp.bgp.message.update.attribute.community.extended import ExtendedCommunity
+from exabgp.bgp.message.update.attribute.community.extended.traffic import TrafficRate
+from exabgp.bgp.message.update.attribute.community.extended.traffic import TrafficAction
+from exabgp.bgp.message.update.attribute.community.extended.traffic import TrafficRedirect
+from exabgp.bgp.message.update.attribute.community.extended.traffic import TrafficMark
+from exabgp.bgp.message.update.attribute.community.extended.traffic import TrafficNextHop
+
 from exabgp.bgp.message.update.attribute.originatorid import OriginatorID
+from exabgp.bgp.message.update.attribute.clusterlist import ClusterID
 from exabgp.bgp.message.update.attribute.clusterlist import ClusterList
 from exabgp.bgp.message.update.attribute.aigp import AIGP
-from exabgp.bgp.message.update.attribute.unknown import UnknownAttribute
+from exabgp.bgp.message.update.attribute.generic import GenericAttribute
 
-from exabgp.bgp.message.operational import MAX_ADVISORY,Advisory,Query,Response
+from exabgp.bgp.message.operational import MAX_ADVISORY
+from exabgp.bgp.message.operational import Advisory
 
-from exabgp.bgp.message.update.attributes import Attributes
+from exabgp.bgp.message.update.attribute import Attributes
 
 from exabgp.rib.change import Change
-from exabgp.bgp.message.refresh import RouteRefresh
 
 from exabgp.logger import Logger
 
@@ -65,22 +103,22 @@ from exabgp.logger import Logger
 # As this is not a real BGP attribute this stays in the configuration file
 
 class Split (int):
-	ID = AttributeID.INTERNAL_SPLIT
+	ID = Attribute.ID.INTERNAL_SPLIT
 	MULTIPLE = False
 
 
 class Watchdog (str):
-	ID = AttributeID.INTERNAL_WATCHDOG
+	ID = Attribute.ID.INTERNAL_WATCHDOG
 	MULTIPLE = False
 
 class Withdrawn (object):
-	ID = AttributeID.INTERNAL_WITHDRAW
+	ID = Attribute.ID.INTERNAL_WITHDRAW
 	MULTIPLE = False
 
 
 # Take an integer an created it networked packed representation for the right family (ipv4/ipv6)
 def pack_int (afi,integer,mask):
-	return ''.join([chr((integer>>(offset*8)) & 0xff) for offset in range(Inet.length[afi]-1,-1,-1)])
+	return ''.join([chr((integer>>(offset*8)) & 0xff) for offset in range(IP.length(afi)-1,-1,-1)])
 
 def formated (line):
 	changed_line = '#'
@@ -97,31 +135,30 @@ class Configuration (object):
 #	'  hold-time 180;\n' \
 
 	_str_bad_flow = "you tried to filter a flow using an invalid port for a component .."
-
 	_str_route_error = \
 	'community, extended-communities and as-path can take a single community as parameter.\n' \
 	'only next-hop is mandatory\n' \
 	'\n' \
 	'syntax:\n' \
 	'route 10.0.0.1/22 {\n' \
-	'  path-information 0.0.0.1;\n' \
-	'  route-distinguisher|rd 255.255.255.255:65535|65535:65536|65536:65535' \
-	'  next-hop 192.0.1.254;\n' \
-	'  origin IGP|EGP|INCOMPLETE;\n' \
-	'  as-path [ AS-SEQUENCE-ASN1 AS-SEQUENCE-ASN2 ( AS-SET-ASN3 )] ;\n' \
-	'  med 100;\n' \
-	'  local-preference 100;\n' \
-	'  atomic-aggregate;\n' \
-	'  community [ 65000 65001 65002 ];\n' \
-	'  extended-community [ target:1234:5.6.7.8 target:1.2.3.4:5678 origin:1234:5.6.7.8 origin:1.2.3.4:5678 0x0002FDE800000001 ]\n' \
-	'  originator-id 10.0.0.10;\n' \
-	'  cluster-list [ 10.10.0.1 10.10.0.2 ];\n' \
-	'  label [ 100 200 ];\n' \
-	'  aggregator ( 65000:10.0.0.10 )\n' \
-	'  aigp 100;\n' \
-	'  split /24\n' \
-	'  watchdog watchdog-name\n' \
-	'  withdraw\n' \
+	'   path-information 0.0.0.1;\n' \
+	'   route-distinguisher|rd 255.255.255.255:65535|65535:65536|65536:65535' \
+	'   next-hop 192.0.1.254;\n' \
+	'   origin IGP|EGP|INCOMPLETE;\n' \
+	'   as-path [ AS-SEQUENCE-ASN1 AS-SEQUENCE-ASN2 ( AS-SET-ASN3 )] ;\n' \
+	'   med 100;\n' \
+	'   local-preference 100;\n' \
+	'   atomic-aggregate;\n' \
+	'   community [ 65000 65001 65002 ];\n' \
+	'   extended-community [ target:1234:5.6.7.8 target:1.2.3.4:5678 origin:1234:5.6.7.8 origin:1.2.3.4:5678 0x0002FDE800000001 ]\n' \
+	'   originator-id 10.0.0.10;\n' \
+	'   cluster-list [ 10.10.0.1 10.10.0.2 ];\n' \
+	'   label [ 100 200 ];\n' \
+	'   aggregator ( 65000:10.0.0.10 )\n' \
+	'   aigp 100;\n' \
+	'   split /24\n' \
+	'   watchdog watchdog-name\n' \
+	'   withdraw\n' \
 	'}\n' \
 	'\n' \
 	'syntax:\n' \
@@ -144,37 +181,58 @@ class Configuration (object):
 	' split /24' \
 	' watchdog watchdog-name' \
 	' withdraw' \
-	';\n' \
+	';\n'
+
+	_str_vpls_error = \
+	'syntax:\n' \
+	'vpls site_name {\n' \
+	'   endpoint <vpls endpoint id; integer>\n' \
+	'   base <label base; integer>\n' \
+	'   offset <block offet; interger>\n' \
+	'   size <block size; integer>\n' \
+	'   route-distinguisher|rd 255.255.255.255:65535|65535:65536|65536:65535\n' \
+	'   next-hop 192.0.1.254;\n' \
+	'   origin IGP|EGP|INCOMPLETE;\n' \
+	'   as-path [ as as as as] ;\n' \
+	'   med 100;\n' \
+	'   local-preference 100;\n' \
+	'   community [ 65000 65001 65002 ];\n' \
+	'   extended-community [ target:1234:5.6.7.8 target:1.2.3.4:5678 origin:1234:5.6.7.8 origin:1.2.3.4:5678 0x0002FDE800000001 l2info:19:0:1500:111 ]\n' \
+	'   originator-id 10.0.0.10;\n' \
+	'   cluster-list [ 10.10.0.1 10.10.0.2 ];\n' \
+	'   withdraw\n' \
+	'}\n'
 
 	_str_flow_error = \
-	'syntax: flow {\n' \
+	'syntax:\n' \
+	'flow {\n' \
 	'   route give-me-a-name\n' \
 	'      route-distinguisher|rd 255.255.255.255:65535|65535:65536|65536:65535; (optional)\n' \
 	'      next-hop 1.2.3.4; (to use with redirect-to-nexthop)\n' \
 	'      match {\n' \
-	'         source 10.0.0.0/24;\n' \
-	'         source ::1/128/0;\n' \
-	'         destination 10.0.1.0/24;\n' \
-	'         port 25;\n' \
-	'         source-port >1024\n' \
-	'         destination-port =80 =3128 >8080&<8088;\n' \
-	'         protocol [ udp tcp ];  (ipv4 only)\n' \
-	'         next-header [ udp tcp ]; (ipv6 only)\n' \
-	'         fragment [ not-a-fragment dont-fragment is-fragment first-fragment last-fragment ]; (ipv4 only)\n' \
-	'         packet-length >200&<300 >400&<500;\n' \
-	'         flow-label >100&<2000; (ipv6 only)\n' \
+	'        source 10.0.0.0/24;\n' \
+	'        source ::1/128/0;\n' \
+	'        destination 10.0.1.0/24;\n' \
+	'        port 25;\n' \
+	'        source-port >1024\n' \
+	'        destination-port =80 =3128 >8080&<8088;\n' \
+	'        protocol [ udp tcp ];  (ipv4 only)\n' \
+	'        next-header [ udp tcp ]; (ipv6 only)\n' \
+	'        fragment [ not-a-fragment dont-fragment is-fragment first-fragment last-fragment ]; (ipv4 only)\n' \
+	'        packet-length >200&<300 >400&<500;\n' \
+	'        flow-label >100&<2000; (ipv6 only)\n' \
 	'      }\n' \
 	'      then {\n' \
-	'         accept;\n' \
-	'         discard;\n' \
-	'         rate-limit 9600;\n' \
-	'         redirect 30740:12345;\n' \
-	'         redirect 1.2.3.4:5678;\n' \
-	'         redirect 1.2.3.4;\n' \
-	'         redirect-next-hop;\n' \
-	'         copy 1.2.3.4;\n' \
-	'         mark 123;\n' \
-	'         action sample|terminal|sample-terminal;\n' \
+	'        accept;\n' \
+	'        discard;\n' \
+	'        rate-limit 9600;\n' \
+	'        redirect 30740:12345;\n' \
+	'        redirect 1.2.3.4:5678;\n' \
+	'        redirect 1.2.3.4;\n' \
+	'        redirect-next-hop;\n' \
+	'        copy 1.2.3.4;\n' \
+	'        mark 123;\n' \
+	'        action sample|terminal|sample-terminal;\n' \
 	'      }\n' \
 	'   }\n' \
 	'}\n\n' \
@@ -182,34 +240,43 @@ class Configuration (object):
 	'fragment code is totally untested\n' \
 
 	_str_process_error = \
-	'syntax: process name-of-process {\n' \
-	'          run /path/to/command with its args;\n' \
-	'        }\n\n' \
+	'syntax:\n' \
+	'process name-of-process {\n' \
+	'   run /path/to/command with its args;\n' \
+	'}\n\n' \
 
 	_str_family_error = \
-	'syntax: family {\n' \
-	'          all;       # default if not family block is present, announce all we know\n' \
-	'          minimal    # use the AFI/SAFI required to announce the routes in the configuration\n' \
-	'          \n' \
-	'          ipv4 unicast;\n' \
-	'          ipv4 multicast;\n' \
-	'          ipv4 nlri-mpls;\n' \
-	'          ipv4 mpls-vpn;\n' \
-	'          ipv4 flow;\n' \
-	'          ipv4 flow-vpn;\n' \
-	'          ipv6 unicast;\n' \
-	'          ipv6 flow;\n' \
-	'          ipv6 flow-vpn;\n' \
-	'        }\n'
+	'syntax:\n' \
+	'family {\n' \
+	'   all;		  # default if not family block is present, announce all we know\n' \
+	'    minimal	  # use the AFI/SAFI required to announce the routes in the configuration\n' \
+	'    \n' \
+	'    ipv4 unicast;\n' \
+	'   ipv4 multicast;\n' \
+	'   ipv4 nlri-mpls;\n' \
+	'   ipv4 mpls-vpn;\n' \
+	'   ipv4 flow;\n' \
+	'   ipv4 flow-vpn;\n' \
+	'   ipv6 unicast;\n' \
+	'   ipv6 flow;\n' \
+	'   ipv6 flow-vpn;\n' \
+	'}\n'
 
 	_str_capa_error = \
-	'syntax: capability {\n' \
-	'          graceful-restart <time in second>;\n' \
-	'          asn4 enable|disable;\n' \
-	'          add-path disable|send|receive|send/receive;\n' \
-	'          multi-session enable|disable;\n' \
-	'          operational enable|disable;\n' \
-	'        }\n'
+	'syntax:\n' \
+	'capability {\n' \
+	'   graceful-restart <time in second>;\n' \
+	'   asn4 enable|disable;\n' \
+	'   add-path disable|send|receive|send/receive;\n' \
+	'   multi-session enable|disable;\n' \
+	'   operational enable|disable;\n' \
+	'}\n'
+
+
+	_str_vpls_bad_size    = "you tried to configure an invalid l2vpn vpls block-size"
+	_str_vpls_bad_offset  = "you tried to configure an invalid l2vpn vpls block-offset"
+	_str_vpls_bad_label   = "you tried to configure an invalid l2vpn vpls label"
+	_str_vpls_bad_enpoint = "you tried to configure an invalid l2vpn vpls endpoint"
 
 	def __init__ (self,fname,text=False):
 		self.debug = environment.settings().debug.configuration
@@ -218,6 +285,81 @@ class Configuration (object):
 		self.logger = Logger()
 		self._text = text
 		self._fname = fname
+		self._dispatch_route_cfg = {
+			'origin': self._route_origin,
+			'as-path': self._route_aspath,
+			# For legacy with version 2.0.x
+			'as-sequence': self._route_aspath,
+			'med': self._route_med,
+			'aigp': self._route_aigp,
+			'next-hop': self._route_next_hop,
+			'local-preference': self._route_local_preference,
+			'atomic-aggregate': self._route_atomic_aggregate,
+			'aggregator': self._route_aggregator,
+			'path-information': self._route_path_information,
+			'originator-id': self._route_originator_id,
+			'cluster-list': self._route_cluster_list,
+			'split': self._route_split,
+			'label': self._route_label,
+			'rd': self._route_rd,
+			'route-distinguisher': self._route_rd,
+			'watchdog': self._route_watchdog,
+			# withdrawn is here to not break legacy code
+			'withdraw': self._route_withdraw,
+			'withdrawn': self._route_withdraw,
+			'community': self._route_community,
+			'extended-community': self._route_extended_community,
+			'attribute': self._route_generic_attribute,
+		}
+		self._dispatch_flow_cfg = {
+			'rd': self._route_rd,
+			'route-distinguisher': self._route_rd,
+			'next-hop': self._flow_route_next_hop,
+			'source': self._flow_source,
+			'destination': self._flow_destination,
+			'port': self._flow_route_anyport,
+			'source-port': self._flow_route_source_port,
+			'destination-port': self._flow_route_destination_port,
+			'protocol': self._flow_route_protocol,
+			'next-header': self._flow_route_next_header,
+			'tcp-flags': self._flow_route_tcp_flags,
+			'icmp-type': self._flow_route_icmp_type,
+			'icmp-code': self._flow_route_icmp_code,
+			'fragment': self._flow_route_fragment,
+			'dscp': self._flow_route_dscp,
+			'traffic-class': self._flow_route_traffic_class,
+			'packet-length': self._flow_route_packet_length,
+			'flow-label': self._flow_route_flow_label,
+			'accept': self._flow_route_accept,
+			'discard': self._flow_route_discard,
+			'rate-limit': self._flow_route_rate_limit,
+			'redirect': self._flow_route_redirect,
+			'redirect-to-nexthop': self._flow_route_redirect_next_hop,
+			'copy': self._flow_route_copy,
+			'mark': self._flow_route_mark,
+			'action': self._flow_route_action,
+			'community': self._route_community,
+			'extended-community': self._route_extended_community,
+		}
+		self._dispatch_vpls_cfg = {
+			'endpoint': self._l2vpn_vpls_endpoint,
+			'offset': self._l2vpn_vpls_offset,
+			'size': self._l2vpn_vpls_size,
+			'base': self._l2vpn_vpls_base,
+			'origin': self._route_origin,
+			'as-path': self._route_aspath,
+			'med': self._route_med,
+			'next-hop': self._route_next_hop,
+			'local-preference': self._route_local_preference,
+			'originator-id': self._route_originator_id,
+			'cluster-list': self._route_cluster_list,
+			'rd': self._route_rd,
+			'route-distinguisher': self._route_rd,
+			'withdraw': self._route_withdraw,
+			'withdrawn': self._route_withdraw,
+			'community': self._route_community,
+			'extended-community': self._route_extended_community,
+		}
 		self._clear()
 
 	def _clear (self):
@@ -263,7 +405,11 @@ class Configuration (object):
 
 		r = False
 		while not self.finished():
-			r = self._dispatch(self._scope,'configuration',['group','neighbor'],[])
+			r = self._dispatch(
+				self._scope,'configuration',
+				['group','neighbor'],
+				[]
+			)
 			if r is False: break
 
 		if r not in [True,None]:
@@ -273,132 +419,19 @@ class Configuration (object):
 		self.neighbor = self._neighbor
 
 		if environment.settings().debug.route:
-			self.decode(environment.settings().debug.route)
-			sys.exit(0)
+			from exabgp.configuration.check import check_message
+			if check_message(self.neighbor,environment.settings().debug.route):
+				sys.exit(0)
+			sys.exit(1)
 
 		if environment.settings().debug.selfcheck:
-			self.selfcheck()
-			sys.exit(0)
+			from exabgp.configuration.check import check_neighbor
+			if check_neighbor(self.neighbor):
+				sys.exit(0)
+			sys.exit(1)
 
 		return True
 
-	def parse_api_route (self,command,peers,action):
-		tokens = formated(command).split(' ')[1:]
-		if len(tokens) < 4:
-			return False
-		if tokens[0] != 'route':
-			return False
-		changes = []
-		if 'self' in command:
-			for peer,nexthop in peers.iteritems():
-				scope = [{}]
-				self._nexthopself = nexthop
-				if not self._single_static_route(scope,tokens[1:]):
-					self._nexthopself = None
-					return False
-				for change in scope[0]['announce']:
-					changes.append((peer,change))
-			self._nexthopself = None
-		else:
-			scope = [{}]
-			if not self._single_static_route(scope,tokens[1:]):
-				return False
-			for peer in peers:
-				for change in scope[0]['announce']:
-					changes.append((peer,change))
-		if action == 'withdraw':
-			for (peer,change) in changes:
-				change.nlri.action = OUT.withdraw
-		return changes
-
-
-	def parse_api_attribute (self,command,peers,action):
-		# This is a quick solution which does not support next-hop self
-		attribute,nlris = command.split('nlri')
-		route = '%s route 0.0.0.0/0 %s' % (action, ' '.join(attribute.split()[2:]))
-		parsed = self.parse_api_route(route,peers,action)
-		if parsed in (True,False,None):
-			return parsed
-		attributes = parsed[0][1].attributes
-		nexthop = parsed[0][1].nlri.nexthop
-		changes = []
-		for nlri in nlris.split():
-			ip,mask = nlri.split('/')
-			change = Change(NLRI(*inet(ip),mask=int(mask),nexthop=nexthop,action=action),attributes)
-			if action == 'withdraw':
-				change.nlri.action = OUT.withdraw
-			else:
-				change.nlri.action = OUT.announce
-			changes.append((peers.keys(),change))
-		return changes
-
-	def parse_api_flow (self,command,action):
-		self._tokens = self._tokenise(' '.join(formated(command).split(' ')[2:]).split('\\n'))
-		scope = [{}]
-		if not self._dispatch(scope,'flow',['route',],[]):
-			return False
-		if not self._check_flow_route(scope):
-			return False
-		changes = scope[0]['announce']
-		if action == 'withdraw':
-			for change in changes:
-				change.nlri.action = OUT.withdraw
-		return changes
-
-	def parse_api_refresh (self,command):
-		tokens = formated(command).split(' ')[2:]
-		if len(tokens) != 2:
-			return False
-		afi = AFI.value(tokens.pop(0))
-		safi = SAFI.value(tokens.pop(0))
-		if afi is None or safi is None:
-			return False
-		return RouteRefresh(afi,safi)
-
-	# operational
-
-	def parse_api_operational (self,command):
-		tokens = formated(command).split(' ',2)
-		scope = [{}]
-
-		if len(tokens) != 3:
-			return False
-
-		operational = tokens[0].lower()
-		what = tokens[1].lower()
-
-		if operational != 'operational':
-			return False
-
-		if what == 'asm':
-			if not self._single_operational(Advisory.ASM,scope,['afi','safi','advisory'],tokens[2]):
-				return False
-		elif what == 'adm':
-			if not self._single_operational(Advisory.ADM,scope,['afi','safi','advisory'],tokens[2]):
-				return False
-		elif what == 'rpcq':
-			if not self._single_operational(Query.RPCQ,scope,['afi','safi','sequence'],tokens[2]):
-				return False
-		elif what == 'rpcp':
-			if not self._single_operational(Response.RPCP,scope,['afi','safi','sequence','counter'],tokens[2]):
-				return False
-		elif what == 'apcq':
-			if not self._single_operational(Query.APCQ,scope,['afi','safi','sequence'],tokens[2]):
-				return False
-		elif what == 'apcp':
-			if not self._single_operational(Response.APCP,scope,['afi','safi','sequence','counter'],tokens[2]):
-				return False
-		elif what == 'lpcq':
-			if not self._single_operational(Query.LPCQ,scope,['afi','safi','sequence'],tokens[2]):
-				return False
-		elif what == 'lpcp':
-			if not self._single_operational(Response.LPCP,scope,['afi','safi','sequence','counter'],tokens[2]):
-				return False
-		else:
-			return False
-
-		operational = scope[0]['operational'][0]
-		return operational
 
 	# XXX: FIXME: move this from here to the reactor (or whatever will manage command from user later)
 	def change_to_peers (self,change,peers):
@@ -533,6 +566,7 @@ class Configuration (object):
 				return False
 			if command == 'static': return self._multi_static(scope,tokens[1:])
 			if command == 'flow': return self._multi_flow(scope,tokens[1:])
+			if command == 'l2vpn': return self._multi_l2vpn(scope,tokens[1:])
 			if command == 'process': return self._multi_process(scope,tokens[1:])
 			if command == 'family': return self._multi_family(scope,tokens[1:])
 			if command == 'capability': return self._multi_capability(scope,tokens[1:])
@@ -541,6 +575,7 @@ class Configuration (object):
 		if name == 'neighbor':
 			if command == 'static': return self._multi_static(scope,tokens[1:])
 			if command == 'flow': return self._multi_flow(scope,tokens[1:])
+			if command == 'l2vpn': return self._multi_l2vpn(scope,tokens[1:])
 			if command == 'process': return self._multi_process(scope,tokens[1:])
 			if command == 'family': return self._multi_family(scope,tokens[1:])
 			if command == 'capability': return self._multi_capability(scope,tokens[1:])
@@ -558,6 +593,12 @@ class Configuration (object):
 					return self._check_flow_route(scope)
 				return False
 
+		if name == 'l2vpn':
+			if command == 'vpls':
+				if self._multi_l2vpn_vpls(scope,tokens[1:]):
+					return self._check_l2vpn_vpls(scope)
+				return False
+
 		if name == 'flow-route':
 			if command == 'match':
 				if self._multi_match(scope,tokens[1:]):
@@ -565,6 +606,16 @@ class Configuration (object):
 				return False
 			if command == 'then':
 				if self._multi_then(scope,tokens[1:]):
+					return True
+				return False
+
+		if name == 'process':
+			if command == 'receive':
+				if self._multi_receive(scope,tokens[1:]):
+					return True
+				return False
+			if command == 'send':
+				if self._multi_send(scope,tokens[1:]):
 					return True
 				return False
 		return False
@@ -577,63 +628,33 @@ class Configuration (object):
 			return False
 
 		elif name == 'route':
-			if command == 'origin': return self._route_origin(scope,tokens[1:])
-			if command == 'as-path': return self._route_aspath(scope,tokens[1:])
-			# For legacy with version 2.0.x
-			if command == 'as-sequence': return self._route_aspath(scope,tokens[1:])
-			if command == 'med': return self._route_med(scope,tokens[1:])
-			if command == 'aigp': return self._route_aigp(scope,tokens[1:])
-			if command == 'next-hop': return self._route_next_hop(scope,tokens[1:])
-			if command == 'local-preference': return self._route_local_preference(scope,tokens[1:])
-			if command == 'atomic-aggregate': return self._route_atomic_aggregate(scope,tokens[1:])
-			if command == 'aggregator': return self._route_aggregator(scope,tokens[1:])
-			if command == 'path-information': return self._route_path_information(scope,tokens[1:])
-			if command == 'originator-id': return self._route_originator_id(scope,tokens[1:])
-			if command == 'cluster-list': return self._route_cluster_list(scope,tokens[1:])
-			if command == 'split': return self._route_split(scope,tokens[1:])
-			if command == 'label': return self._route_label(scope,tokens[1:])
-			if command in ('rd','route-distinguisher'): return self._route_rd(scope,tokens[1:],SAFI.mpls_vpn)
-			if command == 'watchdog': return self._route_watchdog(scope,tokens[1:])
-			# withdrawn is here to not break legacy code
-			if command in ('withdraw','withdrawn'): return self._route_withdraw(scope,tokens[1:])
+			if command in self._dispatch_route_cfg:
+				if command in ('rd','route-distinguisher'):
+					return self._dispatch_route_cfg[command](scope,tokens[1:],SAFI.mpls_vpn)
+				else:
+					return self._dispatch_route_cfg[command](scope,tokens[1:])
 
-			if command == 'community': return self._route_community(scope,tokens[1:])
-			if command == 'extended-community': return self._route_extended_community(scope,tokens[1:])
-			if command == 'attribute': self._route_generic_attribute(scope,tokens[1:])
+		elif name == 'l2vpn':
+			if command in self._dispatch_vpls_cfg:
+				if command in ('rd','route-distinguisher'):
+					return self._dispatch_vpls_cfg[command](scope,tokens[1:],SAFI.vpls)
+				else:
+					return self._dispatch_vpls_cfg[command](scope,tokens[1:])
 
 		elif name == 'flow-route':
-			if command in ('rd','route-distinguisher'): return self._route_rd(scope,tokens[1:],SAFI.flow_vpn)
-			if command == 'next-hop': return self._flow_route_next_hop(scope,tokens[1:])
+			if command in self._dispatch_flow_cfg:
+				if command in ('rd','route-distinguisher'):
+					return self._dispatch_flow_cfg[command](scope,tokens[1:],SAFI.flow_vpn)
+				else:
+					return self._dispatch_flow_cfg[command](scope,tokens[1:])
 
 		elif name == 'flow-match':
-			if command == 'source': return self._flow_source(scope,tokens[1:])
-			if command == 'destination': return self._flow_destination(scope,tokens[1:])
-			if command == 'port': return self._flow_route_anyport(scope,tokens[1:])
-			if command == 'source-port': return self._flow_route_source_port(scope,tokens[1:])
-			if command == 'destination-port': return self._flow_route_destination_port(scope,tokens[1:])
-			if command == 'protocol': return self._flow_route_protocol(scope,tokens[1:])
-			if command == 'next-header': return self._flow_route_next_header(scope,tokens[1:])
-			if command == 'tcp-flags': return self._flow_route_tcp_flags(scope,tokens[1:])
-			if command == 'icmp-type': return self._flow_route_icmp_type(scope,tokens[1:])
-			if command == 'icmp-code': return self._flow_route_icmp_code(scope,tokens[1:])
-			if command == 'fragment': return self._flow_route_fragment(scope,tokens[1:])
-			if command == 'dscp': return self._flow_route_dscp(scope,tokens[1:])
-			if command == 'traffic-class': return self._flow_route_traffic_class(scope,tokens[1:])
-			if command == 'packet-length': return self._flow_route_packet_length(scope,tokens[1:])
-			if command == 'flow-label': return self._flow_route_flow_label(scope,tokens[1:])
+			if command in self._dispatch_flow_cfg:
+					return self._dispatch_flow_cfg[command](scope,tokens[1:])
 
 		elif name == 'flow-then':
-			if command == 'accept': return self._flow_route_accept(scope,tokens[1:])
-			if command == 'discard': return self._flow_route_discard(scope,tokens[1:])
-			if command == 'rate-limit': return self._flow_route_rate_limit(scope,tokens[1:])
-			if command == 'redirect': return self._flow_route_redirect(scope,tokens[1:])
-			if command == 'redirect-to-nexthop': return self._flow_route_redirect_next_hop(scope,tokens[1:])
-			if command == 'copy': return self._flow_route_copy(scope,tokens[1:])
-			if command == 'mark': return self._flow_route_mark(scope,tokens[1:])
-			if command == 'action': return self._flow_route_action(scope,tokens[1:])
-
-			if command == 'community': return self._route_community(scope,tokens[1:])
-			if command == 'extended-community': return self._route_extended_community(scope,tokens[1:])
+			if command in self._dispatch_flow_cfg:
+					return self._dispatch_flow_cfg[command](scope,tokens[1:])
 
 		if name in ('neighbor','group'):
 			if command == 'description': return self._set_description(scope,tokens[1:])
@@ -661,6 +682,7 @@ class Configuration (object):
 			if command == 'inet6': return self._set_family_inet6(scope,tokens[1:])
 			if command == 'ipv4': return self._set_family_ipv4(scope,tokens[1:])
 			if command == 'ipv6': return self._set_family_ipv6(scope,tokens[1:])
+			if command == 'l2vpn': return self._set_family_l2vpn(scope,tokens[1:])
 			if command == 'minimal': return self._set_family_minimal(scope,tokens[1:])
 			if command == 'all': return self._set_family_all(scope,tokens[1:])
 
@@ -675,26 +697,67 @@ class Configuration (object):
 
 		elif name == 'process':
 			if command == 'run': return self._set_process_run(scope,'process-run',tokens[1:])
-			# legacy ...
-			if command == 'parse-routes':
-				self._set_process_command(scope,'neighbor-changes',tokens[1:])
-				self._set_process_command(scope,'receive-routes',tokens[1:])
-				return True
-			# legacy ...
-			if command == 'peer-updates':
-				self._set_process_command(scope,'neighbor-changes',tokens[1:])
-				self._set_process_command(scope,'receive-routes',tokens[1:])
-				return True
-			# new interface
 			if command == 'encoder': return self._set_process_encoder(scope,'encoder',tokens[1:])
-			if command == 'receive-packets': return self._set_process_command(scope,'receive-packets',tokens[1:])
-			if command == 'send-packets': return self._set_process_command(scope,'send-packets',tokens[1:])
-			if command == 'receive-routes': return self._set_process_command(scope,'receive-routes',tokens[1:])
+
+			# legacy ...
+
+			if command == 'parse-routes':
+				self._set_process_command(scope,'receive-parsed',tokens[1:])
+				self._set_process_command(scope,'neighbor-changes',tokens[1:])
+				self._set_process_command(scope,'receive-updates',tokens[1:])
+				return True
+
+			if command == 'peer-updates':
+				self._set_process_command(scope,'receive-parsed',tokens[1:])
+				self._set_process_command(scope,'neighbor-changes',tokens[1:])
+				self._set_process_command(scope,'receive-updates',tokens[1:])
+				return True
+
+			if command == 'send-packets':
+				return self._set_process_command(scope,'send-packets',tokens[1:])
+
+			if command == 'neighbor-changes':
+				return self._set_process_command(scope,'neighbor-changes',tokens[1:])
+
+			if command == 'receive-packets':
+				return self._set_process_command(scope,'receive-packets',tokens[1:])
+
+			if command == 'receive-parsed':
+				return self._set_process_command(scope,'receive-parsed',tokens[1:])
+
+			if command == 'receive-routes':
+				self._set_process_command(scope,'receive-parsed',tokens[1:])
+				self._set_process_command(scope,'receive-updates',tokens[1:])
+				self._set_process_command(scope,'receive-refresh',tokens[1:])
+				return True
+
+			if command == 'receive-operational':
+				self._set_process_command(scope,'receive-parsed',tokens[1:])
+				self._set_process_command(scope,'receive-operational',tokens[1:])
+				return True
+
+		elif name == 'send':  # process / send
+			if command == 'packets': return self._set_process_command(scope,'send-packets',tokens[1:])
+
+		elif name == 'receive':  # process / receive
+			if command == 'packets': return self._set_process_command(scope,'receive-packets',tokens[1:])
+			if command == 'parsed': return self._set_process_command(scope,'receive-parsed',tokens[1:])
+			if command == 'consolidate': return self._set_process_command(scope,'consolidate',tokens[1:])
+
 			if command == 'neighbor-changes': return self._set_process_command(scope,'neighbor-changes',tokens[1:])
-			if command == 'receive-operational': return self._set_process_command(scope,'receive-operational',tokens[1:])
+			if command == 'notification': return self._set_process_command(scope,'receive-notifications',tokens[1:])
+			if command == 'open': return self._set_process_command(scope,'receive-opens',tokens[1:])
+			if command == 'keepalive': return self._set_process_command(scope,'receive-keepalives',tokens[1:])
+			if command == 'refresh': return self._set_process_command(scope,'receive-refresh',tokens[1:])
+			if command == 'update': return self._set_process_command(scope,'receive-updates',tokens[1:])
+			if command == 'updates': return self._set_process_command(scope,'receive-updates',tokens[1:])
+			if command == 'operational': return self._set_process_command(scope,'receive-operational',tokens[1:])
 
 		elif name == 'static':
 			if command == 'route': return self._single_static_route(scope,tokens[1:])
+
+		elif name == 'l2vpn':
+			if command == 'vpls': return self._single_l2vpn_vpls(scope,tokens[1:])
 
 		elif name == 'operational':
 			if command == 'asm': return self._single_operational_asm(scope,tokens[1])
@@ -706,7 +769,19 @@ class Configuration (object):
 
 	def _multi_process (self,scope,tokens):
 		while True:
-			r = self._dispatch(scope,'process',[],['run','encoder','receive-packets','send-packets','receive-routes','receive-operational','neighbor-changes',  'peer-updates','parse-routes'])
+			r = self._dispatch(
+				scope,'process',
+				['send','receive'],
+				[
+					'run','encoder',
+
+					'peer-updates','parse-routes','receive-routes',
+					'receive-parsed','receive-packets',
+					'neighbor-changes',
+					'receive-updates','receive-refresh','receive-operational',
+					'send-packets',
+				]
+			)
 			if r is False: return False
 			if r is None: break
 
@@ -804,7 +879,11 @@ class Configuration (object):
 		self._family = False
 		scope[-1]['families'] = []
 		while True:
-			r = self._dispatch(scope,'family',[],['inet','inet4','inet6','ipv4','ipv6','minimal','all'])
+			r = self._dispatch(
+				scope,'family',
+				[],
+				['inet','inet4','inet6','ipv4','ipv6','l2vpn','minimal','all']
+			)
 			if r is False: return False
 			if r is None: break
 		self._family = False
@@ -871,6 +950,24 @@ class Configuration (object):
 			if self.debug: raise
 			return False
 
+	def _set_family_l2vpn (self,scope,tokens):
+		try:
+			if self._family:
+				self._error = 'l2vpn can not be used with all or minimal'
+				if self.debug: raise
+				return False
+
+			safi = tokens.pop(0)
+			if safi == 'vpls':
+				scope[-1]['families'].append((AFI(AFI.l2vpn),SAFI(SAFI.vpls)))
+			else:
+				return False
+			return True
+		except (IndexError,ValueError):
+			self._error = 'missing safi'
+			if self.debug: raise
+			return False
+
 	def _set_family_minimal (self,scope,tokens):
 		if scope[-1]['families']:
 			self._error = 'minimal can not be used with any other options'
@@ -895,7 +992,15 @@ class Configuration (object):
 		# we know all the families we should use
 		self._capability = False
 		while True:
-			r = self._dispatch(scope,'capability',[],['route-refresh','graceful-restart','multi-session','operational','add-path','asn4','aigp'])
+			r = self._dispatch(
+				scope,'capability',
+				[],
+				[
+					'route-refresh','graceful-restart',
+					'multi-session','operational',
+					'add-path','asn4','aigp'
+				]
+			)
 			if r is False: return False
 			if r is None: break
 		return True
@@ -905,6 +1010,8 @@ class Configuration (object):
 			scope[-1][command] = None
 			return True
 		try:
+			if value and value[0] in ('disable','disabled'):
+				return True
 			# README: Should it be a subclass of int ?
 			grace = int(value[0])
 			if grace < 0:
@@ -1006,7 +1113,20 @@ class Configuration (object):
 	def _multi_group (self,scope,address):
 		scope.append({})
 		while True:
-			r = self._dispatch(scope,'group',['static','flow','neighbor','process','family','capability','operational'],['description','router-id','local-address','local-as','peer-as','passive','hold-time','add-path','graceful-restart','md5','ttl-security','multi-session','group-updates','route-refresh','asn4','aigp','auto-flush','adj-rib-out'])
+			r = self._dispatch(
+				scope,'group',
+				[
+					'static','flow','l2vpn',
+					'neighbor','process','family',
+					'capability','operational'
+				],
+				[
+					'description','router-id','local-address','local-as','peer-as',
+					'passive','hold-time','add-path','graceful-restart','md5',
+					'ttl-security','multi-session','group-updates',
+					'route-refresh','asn4','aigp','auto-flush','adj-rib-out'
+				]
+			)
 			if r is False:
 				return False
 			if r is None:
@@ -1055,11 +1175,20 @@ class Configuration (object):
 			messages = local_scope.get('operational',[])
 
 		for local_scope in (scope[0],scope[-1]):
-			neighbor.api.receive_packets |= local_scope.get('receive-packets',False)
-			neighbor.api.send_packets |= local_scope.get('send-packets',False)
-			neighbor.api.receive_routes |= local_scope.get('receive-routes',False)
-			neighbor.api.receive_operational |= local_scope.get('receive-operational',False)
-			neighbor.api.neighbor_changes |= local_scope.get('neighbor-changes',False)
+			neighbor.api.receive_packets(local_scope.get('receive-packets',False))
+			neighbor.api.send_packets(local_scope.get('send-packets',False))
+
+			neighbor.api.neighbor_changes(local_scope.get('neighbor-changes',False))
+			neighbor.api.consolidate(local_scope.get('consolidate',False))
+
+			neighbor.api.receive_parsed(local_scope.get('receive-parsed',False))
+
+			neighbor.api.receive_notifications(local_scope.get('receive-notifications',False))
+			neighbor.api.receive_opens(local_scope.get('receive-opens',False))
+			neighbor.api.receive_keepalives(local_scope.get('receive-keepalives',False))
+			neighbor.api.receive_updates(local_scope.get('receive-updates',False))
+			neighbor.api.receive_refresh(local_scope.get('receive-refresh',False))
+			neighbor.api.receive_operational(local_scope.get('receive-operational',False))
 
 		if not neighbor.router_id:
 			neighbor.router_id = neighbor.local_address
@@ -1092,15 +1221,15 @@ class Configuration (object):
 		missing = neighbor.missing()
 		if missing:
 			self._error = 'incomplete neighbor, missing %s' % missing
-			if self.debug: raise
+			if self.debug: raise Exception(self._error)
 			return False
 		if neighbor.local_address.afi != neighbor.peer_address.afi:
 			self._error = 'local-address and peer-address must be of the same family'
-			if self.debug: raise
+			if self.debug: raise Exception(self._error)
 			return False
 		if neighbor.peer_address.ip in self._neighbor:
 			self._error = 'duplicate peer definition %s' % neighbor.peer_address.ip
-			if self.debug: raise
+			if self.debug: raise Exception(self._error)
 			return False
 
 		openfamilies = local_scope.get('families','everything')
@@ -1137,18 +1266,8 @@ class Configuration (object):
 			self.logger.configuration('group-updates not enabled for peer %s, it surely should, the default will change to true soon' % neighbor.peer_address,'warning')
 			self.logger.configuration('-'*80,'warning')
 
-		# create one neighbor object per family for multisession
-		if neighbor.multisession:
-			for family in neighbor.families():
-				# XXX: FIXME: Ok, it works but it takes LOTS of memory ..
-				m_neighbor = deepcopy(neighbor)
-				for f in neighbor.families():
-					if f == family:
-						continue
-					m_neighbor.rib.outgoing.remove_family(f)
-
-				m_neighbor.make_rib()
-
+		def _init_neighbor (neighbor):
+				neighbor.make_rib()
 				families = neighbor.families()
 				for change in changes:
 					if change.nlri.family() in families:
@@ -1160,26 +1279,27 @@ class Configuration (object):
 							neighbor.asm[message.family()] = message
 						else:
 							neighbor.messages.append(message)
-				self._neighbor[m_neighbor.name()] = m_neighbor
-		else:
-			neighbor.make_rib()
-			families = neighbor.families()
-			for change in changes:
-				if change.nlri.family() in families:
-					# This add the family to neighbor.families()
-					neighbor.rib.outgoing.insert_announced_watchdog(change)
-			for message in messages:
-				if message.family() in families:
-					if message.name == 'ASM':
-						neighbor.asm[message.family()] = message
-					else:
-						neighbor.messages.append(message)
-			self._neighbor[neighbor.name()] = neighbor
+				self._neighbor[neighbor.name()] = neighbor
 
+		# create one neighbor object per family for multisession
+		if neighbor.multisession:
+			for family in neighbor.families():
+				# XXX: FIXME: Ok, it works but it takes LOTS of memory ..
+				m_neighbor = deepcopy(neighbor)
+				for f in neighbor.families():
+					if f == family:
+						continue
+					m_neighbor.rib.outgoing.remove_family(f)
+				_init_neighbor(m_neighbor)
+		else:
+			_init_neighbor(neighbor)
+
+		# display configuration
 		for line in str(neighbor).split('\n'):
 			self.logger.configuration(line)
 		self.logger.configuration("\n")
 
+		# ...
 		scope.pop(-1)
 		return True
 
@@ -1193,13 +1313,25 @@ class Configuration (object):
 		address = tokens[0]
 		scope.append({})
 		try:
-			scope[-1]['peer-address'] = Inet(*inet(address))
+			scope[-1]['peer-address'] = IP.create(address)
 		except (IndexError,ValueError,socket.error):
 			self._error = '"%s" is not a valid IP address' % address
 			if self.debug: raise
 			return False
 		while True:
-			r = self._dispatch(scope,'neighbor',['static','flow','process','family','capability','operational'],['description','router-id','local-address','local-as','peer-as','passive','hold-time','add-path','graceful-restart','md5','ttl-security','multi-session','group-updates','asn4','aigp','auto-flush','adj-rib-out'])
+			r = self._dispatch(
+				scope,'neighbor',
+				[
+					'static','flow','l2vpn',
+					'process','family','capability','operational'
+				],
+				[
+					'description','router-id','local-address','local-as','peer-as',
+					'passive','hold-time','add-path','graceful-restart','md5',
+					'ttl-security','multi-session','group-updates','asn4','aigp',
+					'auto-flush','adj-rib-out'
+				]
+			)
 			if r is False: return False
 			if r is None: return True
 
@@ -1208,6 +1340,16 @@ class Configuration (object):
 	def _set_router_id (self,scope,command,value):
 		try:
 			ip = RouterID(value[0])
+		except (IndexError,ValueError):
+			self._error = '"%s" is an invalid IP address' % ' '.join(value)
+			if self.debug: raise
+			return False
+		scope[-1][command] = ip
+		return True
+
+	def _set_ip (self,scope,command,value):
+		try:
+			ip = IP.create(value[0])
 		except (IndexError,ValueError):
 			self._error = '"%s" is an invalid IP address' % ' '.join(value)
 			if self.debug: raise
@@ -1241,16 +1383,6 @@ class Configuration (object):
 			self._error = '"%s" is an invalid ASN' % ' '.join(value)
 			if self.debug: raise
 			return False
-
-	def _set_ip (self,scope,command,value):
-		try:
-			ip = Inet(*inet(value[0]))
-		except (IndexError,ValueError,socket.error):
-			self._error = '"%s" is an invalid IP address' % ' '.join(value)
-			if self.debug: raise
-			return False
-		scope[-1][command] = ip
-		return True
 
 	def _set_passive (self,scope,command,value):
 		if value:
@@ -1297,14 +1429,14 @@ class Configuration (object):
 		try:
 			# README: Should it be a subclass of int ?
 			ttl = int(value[0])
-			if ttl < 0:
-				raise ValueError('ttl-security can not be negative')
+			if ttl <= 0:
+				raise ValueError('ttl-security must be a positive number (1-254)')
 			if ttl >= 255:
-				raise ValueError('ttl must be smaller than 256')
+				raise ValueError('ttl must be smaller than 255 (1-254)')
 			scope[-1][command] = ttl
 			return True
 		except ValueError:
-			self._error = '"%s" is an invalid ttl-security' % ' '.join(value)
+			self._error = '"%s" is an invalid ttl-security (1-254)' % ' '.join(value)
 			if self.debug: raise
 			return False
 		return True
@@ -1317,7 +1449,11 @@ class Configuration (object):
 			if self.debug: raise
 			return False
 		while True:
-			r = self._dispatch(scope,'static',['route',],['route',])
+			r = self._dispatch(
+				scope,'static',
+				['route',],
+				['route',]
+			)
 			if r is False: return False
 			if r is None: return True
 
@@ -1326,12 +1462,12 @@ class Configuration (object):
 	def _split_last_route (self,scope):
 		# if the route does not need to be broken in smaller routes, return
 		change = scope[-1]['announce'][-1]
-		if not AttributeID.INTERNAL_SPLIT in change.attributes:
+		if not Attribute.ID.INTERNAL_SPLIT in change.attributes:
 			return True
 
 		# ignore if the request is for an aggregate, or the same size
 		mask = change.nlri.mask
-		split = change.attributes[AttributeID.INTERNAL_SPLIT]
+		split = change.attributes[Attribute.ID.INTERNAL_SPLIT]
 		if mask >= split:
 			return True
 
@@ -1351,21 +1487,27 @@ class Configuration (object):
 
 		afi = change.nlri.afi
 		safi = change.nlri.safi
-		# Really ugly
-		labels = change.nlri.labels
-		rd = change.nlri.rd
-		path_info = change.nlri.path_info
-		nexthop = change.nlri.nexthop
 
-		change.mask = split
+		# Really ugly
+		klass = change.nlri.__class__
+		if klass is Prefix:
+			path_info = change.nlri.path_info
+		elif klass is MPLS:
+			path_info = None
+			labels = change.nlri.labels
+			rd = change.nlri.rd
+		# packed and not pack() but does not matter atm, it is an IP not a NextHop
+		nexthop = change.nlri.nexthop.packed
+
+		change.nlri.mask = split
 		change.nlri = None
 		# generate the new routes
 		for _ in range(number):
 			# update ip to the next route, this recalculate the "ip" field of the Inet class
-			nlri = NLRI(afi,safi,pack_int(afi,ip,split),split,nexthop,OUT.announce)
-			nlri.labels = labels
-			nlri.rd = rd
-			nlri.path_info = path_info
+			nlri = klass(afi,safi,pack_int(afi,ip,split),split,nexthop,OUT.announce,path_info)
+			if klass is MPLS:
+				nlri.labels = labels
+				nlri.rd = rd
 			# next ip
 			ip += increment
 			# save route
@@ -1386,13 +1528,17 @@ class Configuration (object):
 		except ValueError:
 			mask = 32
 		try:
-			# nexthop must be false and its str return nothing .. an empty string does that
-			update = Change(NLRI(*inet(ip),mask=mask,nexthop=None,action=OUT.announce),Attributes())
+			if 'rd' in tokens:
+				klass = MPLS
+			elif 'route-distinguisher' in tokens:
+				klass = MPLS
+			elif 'labels' in tokens:
+				klass = MPLS
+			else:
+				klass = Prefix
 
-			if len(Prefix.pack(update.nlri)) != len(update.nlri):
-				self._error = 'invalid mask for this prefix %s' % str(update.nlri)
-				if self.debug: raise
-				return False
+			# nexthop must be false and its str return nothing .. an empty string does that
+			update = Change(klass(afi=IP.toafi(ip),safi=IP.tosafi(ip),packed=IP.pton(ip),mask=mask,nexthop=None,action=OUT.announce),Attributes())
 		except ValueError:
 			self._error = self._str_route_error
 			if self.debug: raise
@@ -1406,7 +1552,7 @@ class Configuration (object):
 
 	def _check_static_route (self,scope):
 		update = scope[-1]['announce'][-1]
-		if not update.nlri.nexthop:
+		if update.nlri.nexthop is NoIP:
 			self._error = 'syntax: route <ip>/<mask> { next-hop <ip>; }'
 			if self.debug: raise
 			return False
@@ -1422,7 +1568,17 @@ class Configuration (object):
 			return False
 
 		while True:
-			r = self._dispatch(scope,'route',[],['next-hop','origin','as-path','as-sequence','med','aigp','local-preference','atomic-aggregate','aggregator','path-information','community','originator-id','cluster-list','extended-community','split','label','rd','route-distinguisher','watchdog','withdraw'])
+			r = self._dispatch(
+				scope,'route',
+				[],
+				[
+					'next-hop','origin','as-path','as-sequence','med','aigp',
+					'local-preference','atomic-aggregate','aggregator',
+					'path-information','community','originator-id','cluster-list',
+					'extended-community','split','label','rd','route-distinguisher',
+					'watchdog','withdraw'
+				]
+			)
 			if r is False: return False
 			if r is None: return self._split_last_route(scope)
 
@@ -1435,7 +1591,8 @@ class Configuration (object):
 
 		while len(tokens):
 			command = tokens.pop(0)
-			if command == 'withdraw':
+
+			if command in ('withdraw','withdrawn'):
 				if self._route_withdraw(scope,tokens):
 					continue
 				return False
@@ -1443,81 +1600,14 @@ class Configuration (object):
 			if len(tokens) < 1:
 				return False
 
-			if command == 'next-hop':
-				if self._route_next_hop(scope,tokens):
-					continue
-				return False
-			if command == 'origin':
-				if self._route_origin(scope,tokens):
-					continue
-				return False
-			if command == 'as-path':
-				if self._route_aspath(scope,tokens):
-					continue
-				return False
-			if command == 'as-sequence':
-				if self._route_aspath(scope,tokens):
-					continue
-				return False
-			if command == 'med':
-				if self._route_med(scope,tokens):
-					continue
-				return False
-			if command == 'aigp':
-				if self._route_aigp(scope,tokens):
-					continue
-				return False
-			if command == 'local-preference':
-				if self._route_local_preference(scope,tokens):
-					continue
-				return False
-			if command == 'atomic-aggregate':
-				if self._route_atomic_aggregate(scope,tokens):
-					continue
-				return False
-			if command == 'aggregator':
-				if self._route_aggregator(scope,tokens):
-					continue
-				return False
-			if command == 'path-information':
-				if self._route_path_information(scope,tokens):
-					continue
-				return False
-			if command == 'community':
-				if self._route_community(scope,tokens):
-					continue
-				return False
-			if command == 'originator-id':
-				if self._route_originator_id(scope,tokens):
-					continue
-				return False
-			if command == 'cluster-list':
-				if self._route_cluster_list(scope,tokens):
-					continue
-				return False
-			if command == 'extended-community':
-				if self._route_extended_community(scope,tokens):
-					continue
-				return False
-			if command == 'split':
-				if self._route_split(scope,tokens):
-					continue
-				return False
-			if command == 'label':
-				if self._route_label(scope,tokens):
-					continue
-				return False
-			if command in ('rd','route-distinguisher'):
-				if self._route_rd(scope,tokens,SAFI.mpls_vpn):
-					continue
-				return False
-			if command == 'watchdog':
-				if self._route_watchdog(scope,tokens):
-					continue
-				return False
-			if command == 'attribute':
-				if self._route_generic_attribute(scope,tokens):
-					continue
+			if command in self._dispatch_route_cfg:
+				if command in ('rd','route-distinguisher'):
+					if self._dispatch_route_cfg[command](scope,tokens,SAFI.mpls_vpn):
+						continue
+				else:
+					if self._dispatch_route_cfg[command](scope,tokens):
+						continue
+			else:
 				return False
 			return False
 
@@ -1525,6 +1615,33 @@ class Configuration (object):
 			return False
 
 		return self._split_last_route(scope)
+
+	def _single_l2vpn_vpls (self,scope,tokens):
+		#TODO: actual length?(like rd+lb+bo+ve+bs+rd; 14 or so)
+		if len(tokens) < 10:
+			return False
+
+		if not self._insert_l2vpn_vpls(scope,tokens):
+			return False
+
+		while len(tokens):
+			command = tokens.pop(0)
+			if len(tokens) < 1:
+				return False
+			if command in self._dispatch_vpls_cfg:
+				if command in ('rd','route-distinguisher'):
+					if self._dispatch_vpls_cfg[command](scope,tokens,SAFI.vpls):
+						continue
+				else:
+					if self._dispatch_vpls_cfg[command](scope,tokens):
+						continue
+			else:
+				return False
+			return False
+
+		if not self._check_l2vpn_vpls(scope):
+			return False
+		return True
 
 	# Command Route
 
@@ -1561,12 +1678,12 @@ class Configuration (object):
 			for i in range(2,len(data),2):
 				raw += chr(int(data[i:i+2],16))
 
-			for (ID,klass) in Attributes.lookup.iteritems():
+			for ((ID,_),klass) in Attribute.registered_attributes.iteritems():
 				if code == ID and flag == klass.FLAG:
-					scope[-1]['announce'][-1].attributes.add(klass(raw))
+					scope[-1]['announce'][-1].attributes.add(klass.unpack(raw,None))
 					return True
 
-			scope[-1]['announce'][-1].attributes.add(UnknownAttribute(code,flag,raw))
+			scope[-1]['announce'][-1].attributes.add(GenericAttribute(code,flag,raw))
 			return True
 		except (IndexError,ValueError):
 			self._error = self._str_route_error
@@ -1574,7 +1691,7 @@ class Configuration (object):
 			return False
 
 	def _route_next_hop (self,scope,tokens):
-		if scope[-1]['announce'][-1].attributes.has(AttributeID.NEXT_HOP):
+		if scope[-1]['announce'][-1].attributes.has(Attribute.ID.NEXT_HOP):
 			self._error = self._str_route_error
 			if self.debug: raise
 			return False
@@ -1591,19 +1708,21 @@ class Configuration (object):
 					self._error = 'next-hop self can only be specified with a neighbor'
 					if self.debug: raise ValueError(self._error)
 					return False
-				nh = la.pack()
+				nh = IP.unpack(la.pack())
 			else:
-				nh = pton(ip)
+				nh = IP.create(ip)
 
 			change = scope[-1]['announce'][-1]
 			nlri = change.nlri
 			afi = nlri.afi
 			safi = nlri.safi
 
-			nlri.nexthop = cachedNextHop(nh)
+			nlri.nexthop = nh
 
 			if afi == AFI.ipv4 and safi in (SAFI.unicast,SAFI.multicast):
-				change.attributes.add(cachedNextHop(nh))
+				change.attributes.add(Attribute.unpack(NextHop.ID,NextHop.FLAG,nh.packed,None))
+				# NextHop(nh.ip,nh.packed) does not cache the result, using unpack does
+				# change.attributes.add(NextHop(nh.ip,nh.packed))
 
 			return True
 		except:
@@ -1679,7 +1798,7 @@ class Configuration (object):
 
 	def _route_med (self,scope,tokens):
 		try:
-			scope[-1]['announce'][-1].attributes.add(MED(pack('!L',int(tokens.pop(0)))))
+			scope[-1]['announce'][-1].attributes.add(MED(int(tokens.pop(0))))
 			return True
 		except (IndexError,ValueError):
 			self._error = self._str_route_error
@@ -1688,7 +1807,9 @@ class Configuration (object):
 
 	def _route_aigp (self,scope,tokens):
 		try:
-			scope[-1]['announce'][-1].attributes.add(AIGP('\x01\x00\x0b' + pack('!Q',int(tokens.pop(0)))))
+			number = tokens.pop(0)
+			base = 16 if number.lower().startswith('0x') else 10
+			scope[-1]['announce'][-1].attributes.add(AIGP('\x01\x00\x0b' + pack('!Q',int(number,base))))
 			return True
 		except (IndexError,ValueError):
 			self._error = self._str_route_error
@@ -1697,7 +1818,7 @@ class Configuration (object):
 
 	def _route_local_preference (self,scope,tokens):
 		try:
-			scope[-1]['announce'][-1].attributes.add(LocalPreference(pack('!L',int(tokens.pop(0)))))
+			scope[-1]['announce'][-1].attributes.add(LocalPreference(int(tokens.pop(0))))
 			return True
 		except (IndexError,ValueError):
 			self._error = self._str_route_error
@@ -1764,34 +1885,34 @@ class Configuration (object):
 				raise ValueError('invalid community %s (prefix too large)' % data)
 			if suffix >= pow(2,16):
 				raise ValueError('invalid community %s (suffix too large)' % data)
-			return cachedCommunity(pack('!L',(prefix<<16) + suffix))
+			return Community.cached(pack('!L',(prefix<<16) + suffix))
 		elif len(data) >=2 and data[1] in 'xX':
 			value = long(data,16)
 			if value >= pow(2,32):
 				raise ValueError('invalid community %s (too large)' % data)
-			return cachedCommunity(pack('!L',value))
+			return Community.cached(pack('!L',value))
 		else:
 			low = data.lower()
 			if low == 'no-export':
-				return cachedCommunity(Community.NO_EXPORT)
+				return Community.cached(Community.NO_EXPORT)
 			elif low == 'no-advertise':
-				return cachedCommunity(Community.NO_ADVERTISE)
+				return Community.cached(Community.NO_ADVERTISE)
 			elif low == 'no-export-subconfed':
-				return cachedCommunity(Community.NO_EXPORT_SUBCONFED)
+				return Community.cached(Community.NO_EXPORT_SUBCONFED)
 			# no-peer is not a correct syntax but I am sure someone will make the mistake :)
 			elif low == 'nopeer' or low == 'no-peer':
-				return cachedCommunity(Community.NO_PEER)
+				return Community.cached(Community.NO_PEER)
 			elif data.isdigit():
 				value = unpack('!L',data)[0]
 				if value >= pow(2,32):
 					raise ValueError('invalid community %s (too large)' % data)
-					return cachedCommunity(pack('!L',value))
+					return Community.cached(pack('!L',value))
 			else:
 				raise ValueError('invalid community name %s' % data)
 
 	def _route_originator_id (self,scope,tokens):
 		try:
-			scope[-1]['announce'][-1].attributes.add(OriginatorID(*inet(tokens.pop(0))))
+			scope[-1]['announce'][-1].attributes.add(OriginatorID(tokens.pop(0)))
 			return True
 		except:
 			self._error = self._str_route_error
@@ -1799,7 +1920,7 @@ class Configuration (object):
 			return False
 
 	def _route_cluster_list (self,scope,tokens):
-		_list = ''
+		_list = []
 		clusterid = tokens.pop(0)
 		try:
 			if clusterid == '[':
@@ -1812,9 +1933,9 @@ class Configuration (object):
 						return False
 					if clusterid == ']':
 						break
-					_list += ''.join([chr(int(_)) for _ in clusterid.split('.')])
+					_list.append(ClusterID(clusterid))
 			else:
-				_list = ''.join([chr(int(_)) for _ in clusterid.split('.')])
+				_list.append(ClusterID(clusterid))
 			if not _list:
 				raise ValueError('no cluster-id in the cluster-list')
 			clusterlist = ClusterList(_list)
@@ -1859,14 +1980,61 @@ class Configuration (object):
 				raise ValueError('invalid extended community %s' % data)
 			if len(raw) != 8:
 				raise ValueError('invalid extended community %s' % data)
-			return ECommunity(raw)
+			return ExtendedCommunity.unpack(raw,None)
 		elif data.count(':'):
-			return to_ExtendedCommunity(data)
+			_known_community = {
+				# header and subheader
+				'target' : chr(0x00)+chr(0x02),
+				'origin' : chr(0x00)+chr(0x03),
+				'l2info' : chr(0x80)+chr(0x0A),
+			}
+
+			_size_community = {
+				'target' : 2,
+				'origin' : 2,
+				'l2info' : 4,
+			}
+
+			components = data.split(':')
+			command = 'target' if len(components) == 2 else components.pop(0)
+
+			if command not in _known_community:
+				raise ValueError('invalid extended community %s (only origin,target or l2info are supported) ' % command)
+
+			if len(components) != _size_community[command]:
+				raise ValueError('invalid extended community %s, expecting %d fields ' % (command,len(components)))
+
+			header = _known_community[command]
+
+			if command == 'l2info':
+				# encaps, control, mtu, site
+				return ExtendedCommunity.unpack(header+pack('!BBHH',*[int(_) for _ in components]),None)
+
+			if command in ('target','origin'):
+				# global admin, local admin
+				ga,la = components
+
+				if '.' in ga or '.' in la:
+					gc = ga.count('.')
+					lc = la.count('.')
+					if gc == 0 and lc == 3:
+						# ASN first, IP second
+						return ExtendedCommunity.unpack(header+pack('!HBBBB',int(ga),*[int(_) for _ in la.split('.')]),None)
+					if gc == 3 and lc == 0:
+						# IP first, ASN second
+						return ExtendedCommunity.unpack(header+pack('!BBBBH',*[int(_) for _ in ga.split('.')]+[int(la)]),None)
+				else:
+					if command == 'target':
+						return ExtendedCommunity.unpack(header+pack('!HI',int(ga),int(la)),None)
+					if command == 'origin':
+						return ExtendedCommunity.unpack(header+pack('!IH',int(ga),int(la)),None)
+
+			raise ValueError('invalid extended community %s' % command)
 		else:
 			raise ValueError('invalid extended community %s - lc+gc' % data)
 
 	def _route_extended_community (self,scope,tokens):
-		extended_communities = ECommunities()
+		extended_communities = ExtendedCommunities()
 		extended_community = tokens.pop(0)
 		try:
 			if extended_community == '[':
@@ -1968,6 +2136,65 @@ class Configuration (object):
 			if self.debug: raise
 			return False
 
+	# VPLS
+
+	def _multi_l2vpn (self,scope,tokens):
+		if len(tokens) != 0:
+			self._error = self._str_vpls_error
+			if self.debug: raise
+			return False
+		while True:
+			r = self._dispatch(
+				scope,'l2vpn',
+				['vpls',],
+				['vpls',]
+			)
+			if r is False: return False
+			if r is None: break
+		return True
+
+	def _insert_l2vpn_vpls (self,scope,tokens=None):
+		try:
+			attributes = Attributes()
+			change = Change(VPLS(None,None,None,None,None),attributes)
+		except ValueError:
+			self._error = self._str_vpls_error
+			if self.debug: raise
+			return False
+
+		if 'announce' not in scope[-1]:
+			scope[-1]['announce'] = []
+
+		scope[-1]['announce'].append(change)
+		return True
+
+	def _multi_l2vpn_vpls (self,scope,tokens):
+		if len(tokens) > 1:
+			self._error = self._str_vpls_error
+			if self.debug: raise
+			return False
+
+		if not self._insert_l2vpn_vpls(scope):
+			return False
+
+		while True:
+			r = self._dispatch(
+				scope,'l2vpn',
+				[],
+				[
+					'next-hop','origin','as-path','med','local-preference',
+					'community','originator-id','cluster-list','extended-community',
+					'rd','route-distinguisher','withdraw',
+					'endpoint','offset',
+					'size','base'
+				]
+			)
+			if r is False: return False
+			if r is None: break
+
+		return True
+
+
 
 	# Group Flow  ........
 
@@ -1978,7 +2205,11 @@ class Configuration (object):
 			return False
 
 		while True:
-			r = self._dispatch(scope,'flow',['route',],[])
+			r = self._dispatch(
+				scope,'flow',
+				['route',],
+				[]
+			)
 			if r is False: return False
 			if r is None: break
 		return True
@@ -1993,8 +2224,8 @@ class Configuration (object):
 
 		try:
 			attributes = Attributes()
-			attributes[AttributeID.EXTENDED_COMMUNITY] = ECommunities()
-			flow = Change(FlowNLRI(),attributes)
+			attributes[Attribute.ID.EXTENDED_COMMUNITY] = ExtendedCommunities()
+			flow = Change(Flow(),attributes)
 		except ValueError:
 			self._error = self._str_flow_error
 			if self.debug: raise
@@ -2010,6 +2241,26 @@ class Configuration (object):
 		self.logger.configuration('warning: no check on flows are implemented')
 		return True
 
+	def _check_l2vpn_vpls (self,scope):
+		nlri = scope[-1]['announce'][-1].nlri
+
+		if nlri.ve is None:
+			raise ValueError(self._str_vpls_bad_enpoint)
+
+		if nlri.base is None:
+			raise ValueError(self._str_vpls_bad_label)
+
+		if nlri.offset is None:
+			raise ValueError(self._str_vpls_bad_offset)
+
+		if nlri.size is None:
+			raise ValueError(self._str_vpls_bad_size)
+
+		if nlri.base > (0xFFFFF - nlri.size):  # 20 bits, 3 bytes
+			raise ValueError(self._str_vpls_bad_label)
+
+		return True
+
 	def _multi_flow_route (self,scope,tokens):
 		if len(tokens) > 1:
 			self._error = self._str_flow_error
@@ -2020,7 +2271,11 @@ class Configuration (object):
 			return False
 
 		while True:
-			r = self._dispatch(scope,'flow-route',['match','then'],['rd','route-distinguisher','next-hop'])
+			r = self._dispatch(
+				scope,'flow-route',
+				['match','then'],
+				['rd','route-distinguisher','next-hop']
+			)
 			if r is False: return False
 			if r is None: break
 
@@ -2029,6 +2284,42 @@ class Configuration (object):
 			if self.debug: raise
 			return False
 
+		return True
+
+	def _l2vpn_vpls_endpoint(self, scope, token):
+		number = int(token.pop(0))
+		if number < 0 or number > 0xFFFF:
+			raise ValueError(self._str_vpls_bad_enpoint)
+
+		vpls = scope[-1]['announce'][-1].nlri
+		vpls.ve = number
+		return True
+
+	def _l2vpn_vpls_size(self, scope, token):
+		number = int(token.pop(0))
+		if number < 0 or number > 0xFFFF:
+			raise ValueError(self._str_vpls_bad_size)
+
+		vpls = scope[-1]['announce'][-1].nlri
+		vpls.size = number
+		return True
+
+	def _l2vpn_vpls_offset(self, scope, token):
+		number = int(token.pop(0))
+		if number < 0 or number > 0xFFFF:
+			raise ValueError(self._str_vpls_bad_offset)
+
+		vpls = scope[-1]['announce'][-1].nlri
+		vpls.offset = number
+		return True
+
+	def _l2vpn_vpls_base(self, scope, token):
+		number = int(token.pop(0))
+		if number < 0 or number > 0xFFFF:
+			raise ValueError(self._str_vpls_bad_label)
+
+		vpls = scope[-1]['announce'][-1].nlri
+		vpls.base = number
 		return True
 
 	# ..........................................
@@ -2047,7 +2338,16 @@ class Configuration (object):
 		self._flow_state = 'then'
 
 		while True:
-			r = self._dispatch(scope,'flow-match',[],['source','destination','port','source-port','destination-port','protocol','next-header','tcp-flags','icmp-type','icmp-code','fragment','dscp','traffic-class','packet-length','flow-label'])
+			r = self._dispatch(
+				scope,'flow-match',
+				[],
+				[
+					'source','destination',
+					'port','source-port','destination-port',
+					'protocol','next-header','tcp-flags','icmp-type','icmp-code',
+					'fragment','dscp','traffic-class','packet-length','flow-label'
+				]
+			)
 			if r is False: return False
 			if r is None: break
 		return True
@@ -2066,7 +2366,55 @@ class Configuration (object):
 		self._flow_state = 'out'
 
 		while True:
-			r = self._dispatch(scope,'flow-then',[],['accept','discard','rate-limit','redirect','copy','redirect-to-nexthop','mark','action','community'])
+			r = self._dispatch(
+				scope,'flow-then',
+				[],
+				[
+					'accept','discard','rate-limit',
+					'redirect','copy','redirect-to-nexthop',
+					'mark','action',
+					'community','extended-community'
+				]
+			)
+			if r is False: return False
+			if r is None: break
+		return True
+
+	# ..........................................
+
+	def _multi_receive (self,scope,tokens):
+		if len(tokens) != 0:
+			self._error = self._str_flow_error
+			if self.debug: raise
+			return False
+
+		while True:
+			r = self._dispatch(
+				scope,'receive',
+				[],
+				[
+					'packets','parsed','consolidate',
+					'neighbor-changes',
+					'notification','open','keepalive',
+					'update','updates','refresh','operational'
+				]
+			)
+			if r is False: return False
+			if r is None: break
+		return True
+
+	def _multi_send (self,scope,tokens):
+		if len(tokens) != 0:
+			self._error = self._str_flow_error
+			if self.debug: raise
+			return False
+
+		while True:
+			r = self._dispatch(
+				scope,'send',
+				[],
+				['packets']
+			)
 			if r is False: return False
 			if r is None: break
 		return True
@@ -2087,11 +2435,9 @@ class Configuration (object):
 
 			else:
 				ip,netmask,offset = data.split('/')
-				afi,safi,raw = inet(ip)
 				change = scope[-1]['announce'][-1]
-				# XXX: This is ugly
 				change.nlri.afi = AFI(AFI.ipv6)
-				if not change.nlri.add(Flow6Source(raw,int(netmask),int(offset))):
+				if not change.nlri.add(Flow6Source(IP.pton(ip),int(netmask),int(offset))):
 					self._error = 'Flow can only have one destination'
 					if self.debug: raise ValueError(self._error)
 					return False
@@ -2117,11 +2463,10 @@ class Configuration (object):
 
 			else:
 				ip,netmask,offset = data.split('/')
-				afi,safi,raw = inet(ip)
 				change = scope[-1]['announce'][-1]
 				# XXX: This is ugly
 				change.nlri.afi = AFI(AFI.ipv6)
-				if not change.nlri.add(Flow6Destination(raw,int(netmask),int(offset))):
+				if not change.nlri.add(Flow6Destination(IP.pton(ip),int(netmask),int(offset))):
 					self._error = 'Flow can only have one destination'
 					if self.debug: raise ValueError(self._error)
 					return False
@@ -2151,7 +2496,7 @@ class Configuration (object):
 			else:
 				return operator,string[1:]
 		except IndexError:
-			raise('Invalid expression (too short) %s' % string)
+			raise Exception('Invalid expression (too short) %s' % string)
 
 	def _value (self,string):
 		l = 0
@@ -2261,14 +2606,12 @@ class Configuration (object):
 		try:
 			change = scope[-1]['announce'][-1]
 
-			if change.nlri.nexthop:
+			if change.nlri.nexthop is not NoIP:
 				self._error = self._str_flow_error
 				if self.debug: raise
 				return False
 
-			ip = tokens.pop(0)
-			nh = pton(ip)
-			change.nlri.nexthop = cachedNextHop(nh)
+			change.nlri.nexthop = IP.create(tokens.pop(0))
 			return True
 
 		except (IndexError,ValueError):
@@ -2282,7 +2625,7 @@ class Configuration (object):
 	def _flow_route_discard (self,scope,tokens):
 		# README: We are setting the ASN as zero as that what Juniper (and Arbor) did when we created a local flow route
 		try:
-			scope[-1]['announce'][-1].attributes[AttributeID.EXTENDED_COMMUNITY].add(to_FlowTrafficRate(ASN(0),0))
+			scope[-1]['announce'][-1].attributes[Attribute.ID.EXTENDED_COMMUNITY].add(TrafficRate(ASN(0),0))
 			return True
 		except ValueError:
 			self._error = self._str_route_error
@@ -2298,7 +2641,7 @@ class Configuration (object):
 			if speed > 1000000000000:
 				speed = 1000000000000
 				self.logger.configuration("rate-limiting changed for 1 000 000 000 000 bytes from %s" % tokens[0],'warning')
-			scope[-1]['announce'][-1].attributes[AttributeID.EXTENDED_COMMUNITY].add(to_FlowTrafficRate(ASN(0),speed))
+			scope[-1]['announce'][-1].attributes[Attribute.ID.EXTENDED_COMMUNITY].add(TrafficRate(ASN(0),speed))
 			return True
 		except ValueError:
 			self._error = self._str_route_error
@@ -2310,18 +2653,17 @@ class Configuration (object):
 			if tokens[0].count(':') == 1:
 				prefix,suffix=tokens[0].split(':',1)
 				if prefix.count('.'):
-					ip = prefix.split('.')
-					if len(ip) != 4:
-						raise ValueError('invalid IP %s' % prefix)
-					ipn = 0
-					while ip:
-						ipn <<= 8
-						ipn += int(ip.pop(0))
-					number = int(suffix)
-					if number >= pow(2,16):
-						raise ValueError('number is too large, max 16 bits %s' % number)
-					scope[-1]['announce'][-1].attributes[AttributeID.EXTENDED_COMMUNITY].add(to_FlowRedirectVRFIP(ipn,number))
-					return True
+					raise ValueError('this format has been deprecaded as it does not make sense and it is not supported by other vendors')
+					# ip = prefix.split('.')
+					# if len(ip) != 4:
+					# 	raise ValueError('invalid IP %s' % prefix)
+					# if False in [_.isdigit() and int(_) >=0 and int(_) <=255 for _ in ip]:
+					# 	raise ValueError('invalid IP %s' % prefix)
+					# number = int(suffix)
+					# if number >= pow(2,16):
+					# 	raise ValueError('number is too large, max 16 bits %s' % number)
+					# scope[-1]['announce'][-1].attributes[Attribute.ID.EXTENDED_COMMUNITY].add(TrafficRedirectIP(prefix,number))
+					# return True
 				else:
 					asn = int(prefix)
 					route_target = int(suffix)
@@ -2329,19 +2671,18 @@ class Configuration (object):
 						raise ValueError('asn is a 32 bits number, it can only be 16 bit %s' % route_target)
 					if route_target >= pow(2,32):
 						raise ValueError('route target is a 32 bits number, value too large %s' % route_target)
-					scope[-1]['announce'][-1].attributes[AttributeID.EXTENDED_COMMUNITY].add(to_FlowRedirectVRFASN(asn,route_target))
+					scope[-1]['announce'][-1].attributes[Attribute.ID.EXTENDED_COMMUNITY].add(TrafficRedirect(asn,route_target))
 					return True
 			else:
 				change = scope[-1]['announce'][-1]
-				if change.nlri.nexthop:
+				if change.nlri.nexthop is not NoIP:
 					self._error = self._str_flow_error
 					if self.debug: raise
 					return False
 
-				ip = tokens.pop(0)
-				nh = pton(ip)
-				change.nlri.nexthop = cachedNextHop(nh)
-				change.attributes[AttributeID.EXTENDED_COMMUNITY].add(to_FlowRedirect(False))
+				nh = IP.create(tokens.pop(0))
+				change.nlri.nexthop = nh
+				change.attributes[Attribute.ID.EXTENDED_COMMUNITY].add(TrafficNextHop(False))
 				return True
 
 		except (IndexError,ValueError):
@@ -2353,12 +2694,12 @@ class Configuration (object):
 		try:
 			change = scope[-1]['announce'][-1]
 
-			if not change.nlri.nexthop:
+			if change.nlri.nexthop is NoIP:
 				self._error = self._str_flow_error
 				if self.debug: raise
 				return False
 
-			change.attributes[AttributeID.EXTENDED_COMMUNITY].add(to_FlowRedirect(False))
+			change.attributes[Attribute.ID.EXTENDED_COMMUNITY].add(TrafficNextHop(False))
 			return True
 
 		except (IndexError,ValueError):
@@ -2369,16 +2710,14 @@ class Configuration (object):
 	def _flow_route_copy (self,scope,tokens):
 		# README: We are setting the ASN as zero as that what Juniper (and Arbor) did when we created a local flow route
 		try:
-			if scope[-1]['announce'][-1].attributes.has(AttributeID.NEXT_HOP):
+			if scope[-1]['announce'][-1].attributes.has(Attribute.ID.NEXT_HOP):
 				self._error = self._str_flow_error
 				if self.debug: raise
 				return False
 
-			ip = tokens.pop(0)
-			nh = pton(ip)
 			change = scope[-1]['announce'][-1]
-			change.nlri.nexthop = cachedNextHop(nh)
-			change.attributes[AttributeID.EXTENDED_COMMUNITY].add(to_FlowRedirect(True))
+			change.nlri.nexthop = IP.create(tokens.pop(0))
+			change.attributes[Attribute.ID.EXTENDED_COMMUNITY].add(TrafficNextHop(True))
 			return True
 
 		except (IndexError,ValueError):
@@ -2396,7 +2735,7 @@ class Configuration (object):
 				return False
 
 			change = scope[-1]['announce'][-1]
-			change.attributes[AttributeID.EXTENDED_COMMUNITY].add(to_FlowTrafficMark(dscp))
+			change.attributes[Attribute.ID.EXTENDED_COMMUNITY].add(TrafficMark(dscp))
 			return True
 
 		except (IndexError,ValueError):
@@ -2416,7 +2755,7 @@ class Configuration (object):
 				return False
 
 			change = scope[-1]['announce'][-1]
-			change.attributes[AttributeID.EXTENDED_COMMUNITY].add(to_FlowTrafficAction(sample,terminal))
+			change.attributes[Attribute.ID.EXTENDED_COMMUNITY].add(TrafficAction(sample,terminal))
 			return True
 		except (IndexError,ValueError):
 			self._error = self._str_flow_error
@@ -2431,7 +2770,11 @@ class Configuration (object):
 			if self.debug: raise
 			return False
 		while True:
-			r = self._dispatch(scope,'operational',[],['asm',])
+			r = self._dispatch(
+				scope,'operational',
+				[],
+				['asm',]
+			)
 			if r is False: return False
 			if r is None: return True
 
@@ -2514,12 +2857,13 @@ class Configuration (object):
 	def decode (self,update):
 		# self check to see if we can decode what we encode
 		import sys
-		from exabgp.bgp.message.update.factory import UpdateFactory
+		from exabgp.bgp.message.update import Update
 		from exabgp.bgp.message.open import Open
+		from exabgp.bgp.message.open.capability import Capability
 		from exabgp.bgp.message.open.capability import Capabilities
 		from exabgp.bgp.message.open.capability.negotiated import Negotiated
-		from exabgp.bgp.message.open.capability.id import CapabilityID
 		from exabgp.bgp.message.notification import Notify
+		from exabgp.reactor.peer import Peer
 		from exabgp.reactor.api.encoding import JSON
 
 		self.logger._parser = True
@@ -2527,6 +2871,7 @@ class Configuration (object):
 		self.logger.parser('\ndecoding routes in configuration')
 
 		n = self.neighbor[self.neighbor.keys()[0]]
+		p = Peer(n,None)
 
 		path = {}
 		for f in known_families():
@@ -2534,8 +2879,8 @@ class Configuration (object):
 				path[f] = n.add_path
 
 		capa = Capabilities().new(n,False)
-		capa[CapabilityID.ADD_PATH] = path
-		capa[CapabilityID.MULTIPROTOCOL_EXTENSIONS] = n.families()
+		capa[Capability.ID.ADD_PATH] = path
+		capa[Capability.ID.MULTIPROTOCOL_EXTENSIONS] = n.families()
 
 		o1 = Open(4,n.local_as,str(n.local_address),capa,180)
 		o2 = Open(4,n.peer_as,str(n.peer_address),capa,180)
@@ -2555,20 +2900,18 @@ class Configuration (object):
 
 				if kind == 2:
 					self.logger.parser('the message is an update')
-					factory = UpdateFactory
 					decoding = 'update'
 				else:
 					self.logger.parser('the message is not an update (%d) - aborting' % kind)
 					sys.exit(1)
 			else:
 				self.logger.parser('header missing, assuming this message is ONE update')
-				factory = UpdateFactory
 				decoding = 'update'
 				injected,raw = raw,''
 
 			try:
 				# This does not take the BGP header - let's assume we will not break that :)
-				update = factory(negotiated,injected)
+				update = Update.unpack(negotiated,injected)
 			except KeyboardInterrupt:
 				raise
 			except Notify,e:
@@ -2584,114 +2927,6 @@ class Configuration (object):
 			for number in range(len(update.nlris)):
 				change = Change(update.nlris[number],update.attributes)
 				self.logger.parser('decoded %s %s %s' % (decoding,change.nlri.action,change.extensive()))
-			self.logger.parser('update json %s' % JSON('1.0').update(str(n.peer_address),update))
-		import sys
-		sys.exit(0)
-
-
-# ASN4 merge test
-#		injected = ['0x0', '0x0', '0x0', '0x2e', '0x40', '0x1', '0x1', '0x0', '0x40', '0x2', '0x8', '0x2', '0x3', '0x78', '0x14', '0xab', '0xe9', '0x5b', '0xa0', '0x40', '0x3', '0x4', '0x52', '0xdb', '0x0', '0x4f', '0xc0', '0x8', '0x8', '0x78', '0x14', '0xc9', '0x46', '0x78', '0x14', '0xfd', '0xea', '0xe0', '0x11', '0xa', '0x2', '0x2', '0x0', '0x0', '0xab', '0xe9', '0x0', '0x3', '0x5', '0x54', '0x17', '0x9f', '0x65', '0x9e', '0x15', '0x9f', '0x65', '0x80', '0x18', '0x9f', '0x65', '0x9f']
-# EOR
-#		injected = '\x00\x00\x00\x07\x90\x0f\x00\x03\x00\x02\x01'
-
-	def selfcheck (self):
-		import sys
-		# self check to see if we can decode what we encode
-		from exabgp.util.od import od
-		from exabgp.bgp.message.update import Update
-		from exabgp.bgp.message.update.factory import UpdateFactory
-		from exabgp.bgp.message.open import Open
-		from exabgp.bgp.message.open.capability import Capabilities
-		from exabgp.bgp.message.open.capability.negotiated import Negotiated
-		from exabgp.bgp.message.open.capability.id import CapabilityID
-		from exabgp.bgp.message.notification import Notify
-
-		from exabgp.rib.change import Change
-
-		self.logger._parser = True
-
-		self.logger.parser('\ndecoding routes in configuration')
-
-		n = self.neighbor[self.neighbor.keys()[0]]
-
-		path = {}
-		for f in known_families():
-			if n.add_path:
-				path[f] = n.add_path
-
-		capa = Capabilities().new(n,False)
-		capa[CapabilityID.ADD_PATH] = path
-		capa[CapabilityID.MULTIPROTOCOL_EXTENSIONS] = n.families()
-
-		o1 = Open(4,n.local_as,str(n.local_address),capa,180)
-		o2 = Open(4,n.peer_as,str(n.peer_address),capa,180)
-		negotiated = Negotiated(n)
-		negotiated.sent(o1)
-		negotiated.received(o2)
-		#grouped = False
-
-		for nei in self.neighbor.keys():
-			for message in self.neighbor[nei].rib.outgoing.updates(False):
-				pass
-
-			for change1 in self.neighbor[nei].rib.outgoing.sent_changes():
-				str1 = change1.extensive()
-				packed = list(Update([change1.nlri],change1.attributes).messages(negotiated))
-				pack1 = packed[0]
-
-				self.logger.parser('parsed route requires %d updates' % len(packed))
-				self.logger.parser('update size is %d' % len(pack1))
-
-				self.logger.parser('parsed  route %s' % str1)
-				self.logger.parser('parsed  hex   %s' % od(pack1))
-
-				# This does not take the BGP header - let's assume we will not break that :)
-				try:
-					self.logger.parser('')  # new line
-
-					pack1s = pack1[19:] if pack1.startswith('\xFF'*16) else pack1
-					update = UpdateFactory(negotiated,pack1s)
-
-					change2 = Change(update.nlris[0],update.attributes)
-					str2 = change2.extensive()
-					pack2 = list(Update([update.nlris[0]],update.attributes).messages(negotiated))[0]
-
-					self.logger.parser('recoded route %s' % str2)
-					self.logger.parser('recoded hex   %s' % od(pack2))
-
-					str1r = str1.replace(' med 100','').replace(' local-preference 100','').replace(' origin igp','')
-					str2r = str2.replace(' med 100','').replace(' local-preference 100','').replace(' origin igp','')
-
-					skip = False
-
-					if str1r != str2r:
-						if 'attribute [' in str1r and ' 0x00 ' in str1r:
-							# we do not decode non-transitive attributes
-							self.logger.parser('skipping string check on udpate with non-transitive attribute(s)')
-							skip = True
-						else:
-							self.logger.parser('strings are different:')
-							self.logger.parser('[%s]'%str1r)
-							self.logger.parser('[%s]'%str2r)
-							sys.exit(1)
-					else:
-							self.logger.parser('strings are fine')
-
-					if skip:
-						self.logger.parser('skipping encoding for update with non-transitive attribute(s)')
-					elif pack1 != pack2:
-						self.logger.parser('encoding are different')
-						self.logger.parser('[%s]'%od(pack1))
-						self.logger.parser('[%s]'%od(pack2))
-						sys.exit(1)
-					else:
-						self.logger.parser('encoding is fine')
-						self.logger.parser('----------------------------------------')
-
-				except Notify,e:
-					print 'failed due to notification'
-					print str(e)
-					sys.exit(1)
-
+			self.logger.parser('update json %s' % JSON('3.4.0').update(p,update,'',''))
 		import sys
 		sys.exit(0)

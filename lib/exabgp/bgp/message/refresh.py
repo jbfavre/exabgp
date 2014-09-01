@@ -6,9 +6,11 @@ Created by Thomas Mangin on 2012-07-19.
 Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 """
 
-from struct import unpack,error
+from struct import unpack
+from struct import error
 
-from exabgp.protocol.family import AFI,SAFI
+from exabgp.protocol.family import AFI
+from exabgp.protocol.family import SAFI
 from exabgp.bgp.message import Message
 from exabgp.bgp.message.notification import Notify
 
@@ -24,7 +26,8 @@ class Reserved (int):
 		return 'invalid'
 
 class RouteRefresh (Message):
-	TYPE = chr(Message.Type.ROUTE_REFRESH)
+	ID = Message.ID.ROUTE_REFRESH
+	TYPE = chr(Message.ID.ROUTE_REFRESH)
 
 	request = 0
 	start = 1
@@ -47,11 +50,14 @@ class RouteRefresh (Message):
 	def families (self):
 		return self._families[:]
 
-def RouteRefreshFactory (data):
-	try:
-		afi,reserved,safi = unpack('!HBB',data)
-	except error:
-		raise Notify(7,1,'invalid route-refresh message')
-	if reserved not in (0,1,2):
-		raise Notify(7,2,'invalid route-refresh message subtype')
-	return RouteRefresh(afi,safi,reserved)
+	@classmethod
+	def unpack_message (cls,data,negotitated):
+		try:
+			afi,reserved,safi = unpack('!HBB',data)
+		except error:
+			raise Notify(7,1,'invalid route-refresh message')
+		if reserved not in (0,1,2):
+			raise Notify(7,2,'invalid route-refresh message subtype')
+		return RouteRefresh(afi,safi,reserved)
+
+RouteRefresh.register_message()

@@ -6,18 +6,33 @@ Created by Thomas Mangin on 2010-01-14.
 Copyright (c) 2009-2013  Exa Networks. All rights reserved.
 """
 
-from struct import pack,unpack
+# Do not use __slots__ here, we never create enough of them to be worth it
+# And it really break complex inheritance
 
-from exabgp.protocol.family import AFI,SAFI
-from exabgp.protocol.ip.address import Address
-from exabgp.bgp.message.direction import OUT
-from exabgp.bgp.message.update.nlri.prefix import Prefix
+from struct import pack
+from struct import unpack
+
+from exabgp.protocol.ip import IP
+from exabgp.protocol.ip import NoIP
+from exabgp.protocol.family import AFI
+from exabgp.protocol.family import SAFI
+from exabgp.bgp.message import OUT
 from exabgp.bgp.message.notification import Notify
+from exabgp.bgp.message.update.nlri.cidr import CIDR
 
-from exabgp.protocol import Protocol,NamedProtocol
-from exabgp.protocol.ip.icmp import ICMPType,ICMPCode,NamedICMPType,NamedICMPCode
-from exabgp.protocol.ip.fragment import Fragment,NamedFragment
-from exabgp.protocol.ip.tcp.flag import TCPFlag,NamedTCPFlag
+from exabgp.protocol import Protocol
+from exabgp.protocol import NamedProtocol
+from exabgp.protocol.ip.icmp import ICMPType
+from exabgp.protocol.ip.icmp import ICMPCode
+from exabgp.protocol.ip.icmp import NamedICMPType
+from exabgp.protocol.ip.icmp import NamedICMPCode
+from exabgp.protocol.ip.fragment import Fragment
+from exabgp.protocol.ip.fragment import NamedFragment
+from exabgp.protocol.ip.tcp.flag import TCPFlag
+from exabgp.protocol.ip.tcp.flag import NamedTCPFlag
+
+from exabgp.bgp.message.update.nlri.nlri import NLRI
+from exabgp.bgp.message.update.nlri.qualifier.rd import RouteDistinguisher
 
 # =================================================================== Flow Components
 
@@ -96,7 +111,7 @@ class IPrefix4 (IPrefix,IComponent,IPv4):
 	# NAME
 
 	def __init__ (self,raw,netmask):
-		self.nlri = Prefix(self.afi,SAFI.flow_ip,raw,netmask)
+		self.nlri = CIDR(raw,netmask)
 
 	def pack (self):
 		raw = self.nlri.pack()
@@ -111,7 +126,7 @@ class IPrefix6 (IPrefix,IComponent,IPv6):
 	# NAME
 
 	def __init__ (self,raw,netmask,offset):
-		self.nlri = Prefix(self.afi,SAFI.flow_ip,raw,netmask)
+		self.nlri = CIDR(raw,netmask)
 		self.offset = offset
 
 	def pack (self):
@@ -397,13 +412,14 @@ def _unique ():
 
 unique = _unique()
 
-class FlowNLRI (Address):
-	def __init__ (self,afi=AFI.ipv4,safi=SAFI.flow_ip,rd=None):
-		Address.__init__(self,afi,safi)
+class Flow (NLRI):
+	def __init__ (self,afi=AFI.ipv4,safi=SAFI.flow_ip,nexthop=None,rd=None):
+		NLRI.__init__(self,afi,safi)
 		self.rules = {}
 		self.action = OUT.announce
-		self.nexthop = None
+		self.nexthop = IP.unpack(nexthop) if nexthop else NoIP
 		self.rd = rd
+		self.unique = unique.next()
 
 	def __len__ (self):
 		return len(self.pack())
@@ -466,26 +482,103 @@ class FlowNLRI (Address):
 					s.append(' ')
 				s.append(rule)
 			string.append(' %s %s' % (rules[0].NAME,''.join(str(_) for _ in s)))
-		nexthop = ' next-hop %s' % self.nexthop if self.nexthop else ''
+		nexthop = ' next-hop %s' % self.nexthop if self.nexthop is not NoIP else ''
 		rd = str(self.rd) if self.rd else ''
 		return 'flow' + rd + ''.join(string) + nexthop
 
 	def __str__ (self):
 		return self.extensive()
 
+	def _json (self):
+		string = []
+		for index in sorted(self.rules):
+			rules = self.rules[index]
+			s = []
+			for idx,rule in enumerate(rules):
+				# only add ' ' after the first element
+				if idx and not rule.operations & NumericOperator.AND:
+					s.append(', ')
+				s.append('"%s"' % rule)
+			string.append(' "%s": [ %s ]' % (rules[0].NAME,''.join(str(_) for _ in s)))
+		nexthop = ', "next-hop": "%s"' % self.nexthop if self.nexthop is not NoIP else ''
+		rd = ', %s' % self.rd.json() if self.rd else ''
+		compatibility = ', "string": "%s"' % self.extensive()
+		return '{' + rd + ','.join(string) + nexthop + compatibility +' }'
+
 	def json (self):
 		# this is a stop gap so flow route parsing does not crash exabgp
 		# delete unique when this is fixed
-		return '"flow-%d": { "string": "%s" }' % (unique.next(),str(self),)
+		return '"flow-%d": %s' % (self.unique,self._json())
 
 	def index (self):
 		return self.pack()
 
+	@classmethod
+	def unpack (cls,afi,safi,bgp,has_multiple_path,nexthop,action):
+		total = len(bgp)
+		length,bgp = ord(bgp[0]),bgp[1:]
 
-def _next_index ():
-	value = 0
-	while True:
-		yield str(value)
-		value += 1
+		if length & 0xF0 == 0xF0:  # bigger than 240
+			extra,bgp = ord(bgp[0]),bgp[1:]
+			length = ((length & 0x0F) << 16) + extra
 
-next_index = _next_index()
+		if length > len(bgp):
+			raise Notify(3,10,'invalid length at the start of the the flow')
+
+		bgp = bgp[:length]
+		nlri = Flow(afi,safi,nexthop)
+		nlri.action = action
+
+		if safi == SAFI.flow_vpn:
+			nlri.rd = RouteDistinguisher(bgp[:8])
+			bgp = bgp[8:]
+
+		seen = []
+
+		while bgp:
+			what,bgp = ord(bgp[0]),bgp[1:]
+
+			if what not in decode.get(afi,{}):
+				raise Notify(3,10,'unknown flowspec component received for address family %d' % what)
+
+			seen.append(what)
+			if sorted(seen) != seen:
+				raise Notify(3,10,'components are not sent in the right order %s' % seen)
+
+			decoder = decode[afi][what]
+			klass = factory[afi][what]
+
+			if decoder == 'prefix':
+				if afi == AFI.ipv4:
+					_,rd,mask,size,prefix,left = NLRI._nlri(afi,safi,bgp,action)
+					adding = klass(prefix,mask)
+					if not nlri.add(adding):
+						raise Notify(3,10,'components are incompatible (two sources, two destinations, mix ipv4/ipv6) %s' % seen)
+					# logger.parser(LazyFormat("added flow %s (%s) payload " % (klass.NAME,adding),od,bgp[:-len(left)]))
+					bgp = left
+				else:
+					byte,bgp = bgp[1],bgp[0]+bgp[2:]
+					offset = ord(byte)
+					_,rd,mask,size,prefix,left = NLRI._nlri(afi,safi,bgp,action)
+					adding = klass(prefix,mask,offset)
+					if not nlri.add(adding):
+						raise Notify(3,10,'components are incompatible (two sources, two destinations, mix ipv4/ipv6) %s' % seen)
+					# logger.parser(LazyFormat("added flow %s (%s) payload " % (klass.NAME,adding),od,bgp[:-len(left)]))
+					bgp = left
+			else:
+				end = False
+				while not end:
+					byte,bgp = ord(bgp[0]),bgp[1:]
+					end = CommonOperator.eol(byte)
+					operator = CommonOperator.operator(byte)
+					length = CommonOperator.length(byte)
+					value,bgp = bgp[:length],bgp[length:]
+					adding = klass.decoder(value)
+					nlri.add(klass(operator,adding))
+					# logger.parser(LazyFormat("added flow %s (%s) operator %d len %d payload " % (klass.NAME,adding,byte,length),od,value))
+
+		return total-len(bgp),nlri
+
+for safi in (SAFI.flow_ip,SAFI.flow_vpn):
+	for afi in (AFI.ipv4, AFI.ipv6):
+		Flow.register_nlri(afi,safi)

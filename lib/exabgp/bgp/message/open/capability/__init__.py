@@ -6,36 +6,80 @@ Created by Thomas Mangin on 2012-07-17.
 Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 """
 
-from struct import unpack
+# =================================================================== Capability
+#
 
-from exabgp.protocol.family import AFI,SAFI
-from exabgp.bgp.message.open.asn import ASN
-from exabgp.bgp.message.open.capability.id import CapabilityID
-from exabgp.bgp.message.open.capability.mp import MultiProtocol
-from exabgp.bgp.message.open.capability.refresh import RouteRefresh,EnhancedRouteRefresh
-from exabgp.bgp.message.open.capability.graceful import Graceful
-from exabgp.bgp.message.open.capability.ms import MultiSession
-from exabgp.bgp.message.open.capability.addpath import AddPath
-from exabgp.bgp.message.open.capability.operational import Operational
 from exabgp.bgp.message.notification import Notify
 
-def hexa (value):
-	return "%s" % [(hex(ord(_))) for _ in value]
 
-# =================================================================== Unknown
+class Capability (object):
 
-class UnknownCapability (object):
-	def __init__ (self,value,raw=''):
-		self.value = value
-		self.raw = raw
+	class ID (object):
+		RESERVED                 = 0x00  # [RFC5492]
+		MULTIPROTOCOL_EXTENSIONS = 0x01  # [RFC2858]
+		ROUTE_REFRESH            = 0x02  # [RFC2918]
+		OUTBOUND_ROUTE_FILTERING = 0x03  # [RFC5291]
+		MULTIPLE_ROUTES          = 0x04  # [RFC3107]
+		EXTENDED_NEXT_HOP        = 0x05  # [RFC5549]
+		#6-63      Unassigned
+		GRACEFUL_RESTART         = 0x40  # [RFC4724]
+		FOUR_BYTES_ASN           = 0x41  # [RFC4893]
+		# 66 Deprecated
+		DYNAMIC_CAPABILITY       = 0x43  # [Chen]
+		MULTISESSION_BGP_RFC     = 0x44  # [draft-ietf-idr-bgp-multisession]
+		ADD_PATH                 = 0x45  # [draft-ietf-idr-add-paths]
+		ENHANCED_ROUTE_REFRESH   = 0x46  # [draft-ietf-idr-bgp-enhanced-route-refresh]
+		OPERATIONAL              = 0x47  # ExaBGP only ...
+		# 70-127    Unassigned
+		CISCO_ROUTE_REFRESH      = 0x80  # I Can only find reference to this in the router logs
+		# 128-255   Reserved for Private Use [RFC5492]
+		MULTISESSION_BGP         = 0x83  # What Cisco really use for Multisession (yes this is a reserved range in prod !)
 
-	def __str__ (self):
-		if self.value in CapabilityID.reserved: return 'Reserved %s' % str(self.value)
-		if self.value in CapabilityID.unassigned: return 'Unassigned %s' % str(self.value)
-		return 'unknown %s %s' % (str(self.value),str(self.raw))
+		EXTENDED_MESSAGE         = -1    # No yet defined by draft http://tools.ietf.org/html/draft-ietf-idr-extended-messages-02.txt
 
-	def extract (self):
-		return []
+		unassigned = range(70,128)
+		reserved = range(128,256)
+
+		# Internal
+		AIGP = 0xFF00
+
+
+	registered_capability = dict()
+	_fallback_capability = None
+
+	@staticmethod
+	def hex (data):
+		return '0x' + ''.join('%02x' % ord(_) for _ in data)
+
+	@classmethod
+	def fallback_capability (cls):
+		if cls._fallback_capability is not None:
+			raise RuntimeError('only one fallback function can be registered')
+		cls._fallback_capability = cls
+
+	@classmethod
+	def register_capability (cls,capability=None):
+		what = cls.ID if capability is None else capability
+		if what in cls.registered_capability:
+			raise RuntimeError('only one class can be registered per capability')
+		cls.registered_capability[what] = cls
+
+	@classmethod
+	def klass (cls,what):
+		if what in cls.registered_capability:
+			kls = cls.registered_capability[what]
+			kls.ID = what
+			return kls
+		if cls._fallback_capability:
+			return cls._fallback_capability
+		raise Notify (2,4,'can not handle capability %s' % what)
+
+	@classmethod
+	def unpack (cls,capability,capabilities,data):
+		if capability in capabilities:
+			return cls.klass(capability).unpack(capability,capabilities[capability],data)
+		return cls.klass(capability).unpack(capability,Capability.klass(capability)(),data)
+
 
 # =================================================================== Parameter
 
@@ -51,6 +95,22 @@ class Parameter (int):
 # =================================================================== Capabilities
 # http://www.iana.org/assignments/capability-codes/
 
+from exabgp.protocol.family import AFI
+from exabgp.protocol.family import SAFI
+from exabgp.bgp.message.notification import Notify
+
+# Must be imported for the register API to work
+from exabgp.bgp.message.open.capability.addpath import AddPath
+from exabgp.bgp.message.open.capability.asn4 import ASN4
+from exabgp.bgp.message.open.capability.graceful import Graceful
+from exabgp.bgp.message.open.capability.mp import MultiProtocol
+from exabgp.bgp.message.open.capability.ms import MultiSession
+from exabgp.bgp.message.open.capability.operational import Operational
+from exabgp.bgp.message.open.capability.refresh import RouteRefresh
+from exabgp.bgp.message.open.capability.refresh import EnhancedRouteRefresh
+from exabgp.bgp.message.open.capability.unknown import UnknownCapability
+# /forced import
+
 # +------------------------------+
 # | Capability Code (1 octet)    |
 # +------------------------------+
@@ -63,36 +123,10 @@ class Capabilities (dict):
 	def announced (self,capability):
 		return capability in self
 
-	# XXX: Should we not call the __str__ function of all the created capability classes ?
 	def __str__ (self):
 		r = []
-		for key in self.keys():
-			if key == CapabilityID.MULTIPROTOCOL_EXTENSIONS:
-				r += [str(self[key])]
-			elif key == CapabilityID.ROUTE_REFRESH:
-				r += [str(self[key])]
-			elif key == CapabilityID.CISCO_ROUTE_REFRESH:
-				r += ['Cisco Route Refresh']
-			elif key == CapabilityID.ENHANCED_ROUTE_REFRESH:
-				r += ['Enhanced Route Refresh']
-			elif key == CapabilityID.GRACEFUL_RESTART:
-				r += ['Graceful Restart']
-			elif key == CapabilityID.FOUR_BYTES_ASN:
-				r += ['4Bytes AS %d' % self[key]]
-			elif key == CapabilityID.MULTISESSION_BGP:
-				r += [str(self[key])]
-			elif key == CapabilityID.MULTISESSION_BGP_RFC:
-				r += ['Multi Session']
-			elif key == CapabilityID.ADD_PATH:
-				r += [str(self[key])]
-			elif key == CapabilityID.OPERATIONAL:
-				r += ['Operational']
-			elif key in CapabilityID.reserved:
-				r += ['private use capability %d' % key]
-			elif key in CapabilityID.unassigned:
-				r += ['unassigned capability %d' % key]
-			else:
-				r += ['unhandled capability %d' % key]
+		for key in sorted(self.keys()):
+			r.append(str(self[key]))
 		return ', '.join(r)
 
 	def new (self,neighbor,restarted):
@@ -101,10 +135,10 @@ class Capabilities (dict):
 
 		mp = MultiProtocol()
 		mp.extend(families)
-		self[CapabilityID.MULTIPROTOCOL_EXTENSIONS] = mp
+		self[Capability.ID.MULTIPROTOCOL_EXTENSIONS] = mp
 
 		if neighbor.asn4:
-			self[CapabilityID.FOUR_BYTES_ASN] = neighbor.local_as
+			self[Capability.ID.FOUR_BYTES_ASN] = ASN4(neighbor.local_as)
 
 		if neighbor.add_path:
 			ap_families = []
@@ -112,25 +146,25 @@ class Capabilities (dict):
 				ap_families.append((AFI(AFI.ipv4),SAFI(SAFI.unicast)))
 			if (AFI(AFI.ipv6),SAFI(SAFI.unicast)) in families:
 				ap_families.append((AFI(AFI.ipv6),SAFI(SAFI.unicast)))
-			if (AFI(AFI.ipv4),SAFI(SAFI.nlri_mpls)) in families:
-				ap_families.append((AFI(AFI.ipv4),SAFI(SAFI.nlri_mpls)))
+			# if (AFI(AFI.ipv4),SAFI(SAFI.nlri_mpls)) in families:
+			# 	ap_families.append((AFI(AFI.ipv4),SAFI(SAFI.nlri_mpls)))
 			#if (AFI(AFI.ipv6),SAFI(SAFI.unicast)) in families:
 			#	ap_families.append((AFI(AFI.ipv6),SAFI(SAFI.unicast)))
-			self[CapabilityID.ADD_PATH] = AddPath(ap_families,neighbor.add_path)
+			self[Capability.ID.ADD_PATH] = AddPath(ap_families,neighbor.add_path)
 
 		if graceful:
 			if restarted:
-				self[CapabilityID.GRACEFUL_RESTART] = Graceful(Graceful.RESTART_STATE,graceful,[(afi,safi,Graceful.FORWARDING_STATE) for (afi,safi) in families])
+				self[Capability.ID.GRACEFUL_RESTART] = Graceful().set(Graceful.RESTART_STATE,graceful,[(afi,safi,Graceful.FORWARDING_STATE) for (afi,safi) in families])
 			else:
-				self[CapabilityID.GRACEFUL_RESTART] = Graceful(0x0,graceful,[(afi,safi,Graceful.FORWARDING_STATE) for (afi,safi) in families])
+				self[Capability.ID.GRACEFUL_RESTART] = Graceful().set(0x0,graceful,[(afi,safi,Graceful.FORWARDING_STATE) for (afi,safi) in families])
 
 		if neighbor.route_refresh:
-			self[CapabilityID.ROUTE_REFRESH] = RouteRefresh()
-			self[CapabilityID.ENHANCED_ROUTE_REFRESH] = EnhancedRouteRefresh()
+			self[Capability.ID.ROUTE_REFRESH] = RouteRefresh()
+			self[Capability.ID.ENHANCED_ROUTE_REFRESH] = EnhancedRouteRefresh()
 
 		# MUST be the last key added
 		if neighbor.multisession:
-			self[CapabilityID.MULTISESSION_BGP] = MultiSession([CapabilityID.MULTIPROTOCOL_EXTENSIONS])
+			self[Capability.ID.MULTISESSION_BGP] = MultiSession().set([Capability.ID.MULTIPROTOCOL_EXTENSIONS])
 		return self
 
 	def pack (self):
@@ -141,103 +175,39 @@ class Capabilities (dict):
 		parameters = "".join(["%s%s%s" % (chr(2),chr(len(r)),r) for r in rs])
 		return "%s%s" % (chr(len(parameters)),parameters)
 
+	@staticmethod
+	def unpack (data):
+		def _key_values (name,data):
+			if len(data) < 2:
+				raise Notify(2,0,"Bad length for OPEN %s (<2) %s" % (name,Capability.hex(data)))
+			l = ord(data[1])
+			boundary = l+2
+			if len(data) < boundary:
+				raise Notify(2,0,"Bad length for OPEN %s (buffer underrun) %s" % (name,Capability.hex(data)))
+			key = ord(data[0])
+			value = data[2:boundary]
+			rest = data[boundary:]
+			return key,value,rest
 
+		capabilities = Capabilities()
 
-def _key_values (name,data):
-	if len(data) < 2:
-		raise Notify(2,0,"Bad length for OPEN %s (<2) %s" % (name,hexa(data)))
-	l = ord(data[1])
-	boundary = l+2
-	if len(data) < boundary:
-		raise Notify(2,0,"Bad length for OPEN %s (buffer underrun) %s" % (name,hexa(data)))
-	key = ord(data[0])
-	value = data[2:boundary]
-	rest = data[boundary:]
-	return key,value,rest
+		option_len = ord(data[0])
+		# XXX: FIXME: check the length of data
+		if option_len:
+			data = data[1:]
+			while data:
+				key,value,data = _key_values('parameter',data)
+				# Paramaters must only be sent once.
+				if key == Parameter.AUTHENTIFICATION_INFORMATION:
+					raise Notify(2,5)
 
-def CapabilitiesFactory (data):
-	capabilities = Capabilities()
+				if key == Parameter.CAPABILITIES:
+					while value:
+						capability,capv,value = _key_values('capability',value)
+						capabilities[capability] = Capability.unpack(capability,capabilities,capv)
+				else:
+					raise Notify(2,0,'Unknow OPEN parameter %s' % hex(key))
+		return capabilities
 
-	option_len = ord(data[0])
-	if option_len:
-		data = data[1:]
-		while data:
-			key,value,data = _key_values('parameter',data)
-			# Paramaters must only be sent once.
-			if key == Parameter.AUTHENTIFICATION_INFORMATION:
-				raise Notify(2,5)
-
-			if key == Parameter.CAPABILITIES:
-				while value:
-					k,capv,value = _key_values('capability',value)
-					# Multiple Capabilities can be present in a single attribute
-					#if r:
-					#	raise Notify(2,0,"Bad length for OPEN %s (size mismatch) %s" % ('capability',hexa(value)))
-
-					if k == CapabilityID.MULTIPROTOCOL_EXTENSIONS:
-						if k not in capabilities:
-							capabilities[k] = MultiProtocol()
-						afi = AFI(unpack('!H',capv[:2])[0])
-						safi = SAFI(ord(capv[3]))
-						capabilities[k].append((afi,safi))
-						continue
-
-					if k == CapabilityID.GRACEFUL_RESTART:
-						restart = unpack('!H',capv[:2])[0]
-						restart_flag = restart >> 12
-						restart_time = restart & Graceful.TIME_MASK
-						value_gr = capv[2:]
-						families = []
-						while value_gr:
-							afi = AFI(unpack('!H',value_gr[:2])[0])
-							safi = SAFI(ord(value_gr[2]))
-							flag_family = ord(value_gr[0])
-							families.append((afi,safi,flag_family))
-							value_gr = value_gr[4:]
-						capabilities[k] = Graceful(restart_flag,restart_time,families)
-						continue
-
-					if k == CapabilityID.FOUR_BYTES_ASN:
-						capabilities[k] = ASN(unpack('!L',capv[:4])[0])
-						continue
-
-					if k == CapabilityID.CISCO_ROUTE_REFRESH:
-						capabilities[k] = RouteRefresh()
-						continue
-
-					if k == CapabilityID.ROUTE_REFRESH:
-						capabilities[k] = RouteRefresh()
-						continue
-
-					if k == CapabilityID.ENHANCED_ROUTE_REFRESH:
-						capabilities[k] = EnhancedRouteRefresh()
-						continue
-
-					if k == CapabilityID.MULTISESSION_BGP:
-						capabilities[k] = MultiSession()
-						continue
-
-					if k == CapabilityID.MULTISESSION_BGP_RFC:
-						capabilities[k] = MultiSession()
-						continue
-
-					if k == CapabilityID.ADD_PATH:
-						if k not in capabilities:
-							capabilities[k] = AddPath()
-						value_ad = capv
-						while value_ad:
-							afi = AFI(unpack('!H',value_ad[:2])[0])
-							safi = SAFI(ord(value_ad[2]))
-							sr = ord(value_ad[3])
-							capabilities[k].add_path(afi,safi,sr)
-							value_ad = value_ad[4:]
-
-					if k == CapabilityID.OPERATIONAL:
-						capabilities[k] = Operational()
-						continue
-
-					if k not in capabilities:
-						capabilities[k] = UnknownCapability(k,[ord(_) for _ in capv])
-			else:
-				raise Notify(2,0,'Unknow OPEN parameter %s' % hex(key))
-	return capabilities
+from exabgp.util.enumeration import Enumeration
+REFRESH = Enumeration ('absent','normal','enhanced')
