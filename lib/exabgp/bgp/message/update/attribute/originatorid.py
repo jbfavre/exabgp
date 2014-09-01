@@ -6,25 +6,25 @@ Created by Thomas Mangin on 2012-07-07.
 Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 """
 
-from exabgp.protocol.ip.inet import Inet
-from exabgp.bgp.message.update.attribute.id import AttributeID
-from exabgp.bgp.message.update.attribute import Flag,Attribute
+from exabgp.protocol.ip import IPv4
 
-# =================================================================== OriginatorID (3)
+from exabgp.bgp.message.update.attribute.attribute import Attribute
 
-class OriginatorID (Attribute,Inet):
-	ID = AttributeID.ORIGINATOR_ID
-	FLAG = Flag.OPTIONAL
+# ============================================================== OriginatorID (3)
+
+class OriginatorID (Attribute,IPv4):
+	ID = Attribute.ID.ORIGINATOR_ID
+	FLAG = Attribute.Flag.OPTIONAL
 	MULTIPLE = False
+	CACHING = True
 
-	# Take an IP as value
-	def __init__ (self,afi,safi,packed):
-		Inet.__init__(self,afi,safi,packed)
-		# This override Inet.pack too.
-		self.packed = self._attribute(Inet.pack(self))
+	__slots__ = []
 
-	def pack (self,asn4=None):
-		return Inet.pack(self)
+	def pack (self,negotiated=None):
+		return self._attribute(self.packed)
 
-	def __str__ (self):
-		return Inet.__str__(self)
+	@classmethod
+	def unpack (cls,data,negotiated):
+		return IPv4.unpack(data,cls)
+
+OriginatorID.register_attribute()

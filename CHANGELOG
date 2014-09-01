@@ -3,6 +3,85 @@ Version explained:
  minor : increase on risk of code breakage during a major release
  bug   : increase on bug or incremental changes
 
+Version 3.4.2
+ * Feature: add more information in crash report
+ * Fix: problem when trying to report exception errors
+ * Fix: better handling of on PIPE errors
+    reported by: Thomas Raabo
+ * Fix: could not split MPLS routes
+    reported by: Hideaki HAYASHI
+ * Fix: not correctly handling NOTIFICATION message
+    reported by: Hideaki HAYASHI
+ * Fix: do not block on a peer should a socket become blocking
+    reported by: Wouter Miltenburg
+ * Fix: API JSON message id incrementation
+    reported by: Wouter Miltenburg
+
+Version 3.4.1
+ * Fix: on bad JSON message
+    patch from: Wouter Miltenburg
+ * Fix: parsing of default route
+    reported by: Wouter Miltenburg
+ * Fix: remove legacy exabgp.tcp.timeout
+ * Fix: forgot some processes options when printing neighbor
+ * Fix: bad function call for API
+ * Fix: correct JSON for OPEN
+ * Fix: issues with bad naming of APIOption
+    patch from: Wouter Miltenburg
+ * Fix: do not try to be clever (and possibly get it wrong) and rely on keepalive timer to detect TCP faults
+ * Fix: formating issue of extended community
+ * Fix: issue with EOR
+ * Fix: caching issue
+    reported by: Wouter Miltenburg
+ * Fix: make sure we do not call select with a negative time
+    reported by: Wouter Miltenburg, Daniel Piekacz
+    patch from: Wouter Miltenburg
+ * Fix: handle AS4_PATH with PARTIAL bit set
+    reported by: Daniel Piekacz
+ * Fix: bug with generic attribute generation
+ * Fix: bad Notification
+    patch from: Wouter Miltenburg
+ * Fix: bad Keepalive JSON message
+    patch from: Wouter Miltenburg
+
+Version 3.4.0
+ * Feature: add support for extended-attribute for FlowSpec
+ * Feature: more detailed JSON objects
+    patch from: Wouter Miltenburg
+ * Feature: support for L2VPN (experimental)
+    patch from: Nikita V. Shirokov
+ * Improvement: better handling of NOTIFICATION received during OPEN negotiation
+ * Improvement: ExaBGP can restart failed helper process
+ * Fix: Do not reconnect too fast when connection fails
+    reported by: Robert Barnes
+ * Fix: Invalid JSON object for route-refresh
+    reported by: Robert Barnes
+ * Fix: We were not reporting the NLRI of the route received when exabgp.log.routes was set
+ * Fix: accept exabgp_tcp_port as configuration option and not only exabgp.tcp.port
+ * Fix: duplicate line output
+ * Fix: bad refactorisation which caused an bad ASN4 bug
+ * Fix: change EOR from IPv4 multicast (mistake) to IPv4 unicast
+    reported by: Mark Treacy
+ * Fix: bad encoding of flow fragment encoding
+    reported by: Andrei-Marius Radu
+ * Fix: bad reporting of process open sending
+    reported by: Mark Treacy (with patch, thank you)
+ * Fix: Incorporating NETBSD compatibility patches
+ * Fix: Generation of Generic Attributes
+ * Fix: Faster reactor (should be able to process much more API/BGP messages)
+ * Change: new commands for the configuration of the API
+ * Change: JSON objects now include a unique neighbor identifier
+ * Change: JSON objects now include a counter for unique message id
+ * Change: JSON objects now include a "type" to now how to best parse them
+ * Change: JSON new EOR object
+ * Change: JSON new Flow format
+ * Change: slight variation with the command line option names, now using docopt
+    patch from: Michael Robert Watson
+ * Change: the profile information is now exported in kcachegrind format
+ * Compatibility: JSON re-introduced the family under the "announce" section ( removed by mistake )
+ * Compatibility: restoring integer as default time, high resolution must be enabled to not break older installations
+ * Change: JSON and Text shutdown object now shows the PID and PPID
+
 Version 3.3.2
  * Fix: work toward working operational-01
    patch by: David Freedman

@@ -5,9 +5,13 @@ debug.py
 Created by Thomas Mangin on 2011-03-29.
 Copyright (c) 2009-2012 Exa Networks. All rights reserved.
 """
+
+from exabgp.version import version
+
 try:
 	import os
 	import sys
+	import platform
 
 	def bug_report (type, value, trace):
 		import traceback
@@ -22,10 +26,13 @@ try:
 		print "-"*80
 		print
 		print
-		print '-- Version'
+		print '-- Information'
 		print
 		print
-		print sys.version
+		print 'ExaBGP : %s' % version
+		print 'Python : %s' % sys.version.replace('\n',' ')
+		print 'Uname  : %s' % platform.version()
+		print 'MaxInt : %s' % str(sys.maxint)
 		print
 		print
 		print "-- Configuration"

@@ -7,12 +7,14 @@ Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 """
 
 class Change (object):
+	__slots__ = ['nlri','attributes']
+
 	def __init__ (self,nlri,attributes):
 		self.nlri = nlri
 		self.attributes = attributes
 
 	def index (self):
-		return self.nlri.index()
+		return '%02x%02x' % self.nlri.family() + self.nlri.index()
 
 	def __eq__ (self,other):
 		return self.nlri == other.nlri and self.attributes == other.attributes

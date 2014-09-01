@@ -7,31 +7,44 @@ Copyright (c) 2009-2013  Exa Networks. All rights reserved.
 """
 
 from struct import pack
+from struct import unpack
 
 # =================================================================== AFI
 
 # http://www.iana.org/assignments/address-family-numbers/
 class AFI (int):
+	undefined = 0x00  # internal
 	ipv4 = 0x01
 	ipv6 = 0x02
+	l2vpn = 0x19
 
 	Family = {
-		ipv4 : 0x02,  # socket.AF_INET,
-		ipv6 : 0x30,  # socket.AF_INET6,
+		ipv4 : 0x02,   # socket.AF_INET,
+		ipv6 : 0x30,   # socket.AF_INET6,
+		l2vpn : 0x02,  # l2vpn info over ipv4 session
 	}
 
 	def __str__ (self):
 		if self == 0x01: return "ipv4"
 		if self == 0x02: return "ipv6"
-		return "unknown afi"
+		if self == 0x19: return "l2vpn"
+		return "unknown afi %d" % self
+
+	def __repr__ (self):
+		return str(self)
 
 	def name (self):
 		if self == 0x01: return "inet4"
 		if self == 0x02: return "inet6"
+		if self == 0x19: return "l2vpn"
 		return "unknown afi"
 
 	def pack (self):
 		return pack('!H',self)
+
+	@staticmethod
+	def unpack (data):
+		return AFI(unpack('!H',data)[0])
 
 	@staticmethod
 	def value (name):
@@ -43,7 +56,7 @@ class AFI (int):
 
 # http://www.iana.org/assignments/safi-namespace
 class SAFI (int):
-	unicast_multicast = 0       # internal
+	undefined = 0               # internal
 	unicast = 1                 # [RFC4760]
 	multicast = 2               # [RFC4760]
 #	deprecated = 3              # [RFC4760]
@@ -53,15 +66,18 @@ class SAFI (int):
 #	encapsulation = 7           # [RFC5512]
 #
 #	tunel = 64                  # [Nalawade]
-#	vpls = 65                   # [RFC4761]
+	vpls = 65                   # [RFC4761]
 #	bgp_mdt = 66                # [Nalawade]
 #	bgp_4over6 = 67             # [Cui]
 #	bgp_6over4 = 67             # [Cui]
 #	vpn_adi = 69                # [RFC-ietf-l1vpn-bgp-auto-discovery-05.txt]
 #
+
+	evpn = 70                   # [draft-ietf-l2vpn-evpn]
 	mpls_vpn = 128              # [RFC4364]
 #	mcast_bgp_mpls_vpn = 129    # [RFC2547]
 #	rt = 132                    # [RFC4684]
+	rtc = 132                   # [RFC4684]
 	flow_ip = 133               # [RFC5575]
 	flow_vpn = 134              # [RFC5575]
 #
@@ -75,22 +91,32 @@ class SAFI (int):
 		if self == 0x01: return "unicast"
 		if self == 0x02: return "multicast"
 		if self == 0x04: return "nlri-mpls"
+		if self == 0x46: return "evpn"
 		if self == 0x80: return "mpls-vpn"
+		if self == 0x84: return "rtc"
 		if self == 0x85: return "flow"
 		if self == 0x86: return "flow-vpn"
-		return "unknown safi"
+		if self == 0x41: return "vpls"
+		return "unknown safi %d" % self
 
 	def __str__ (self):
 		return self.name()
 
+	def __repr__ (self):
+		return str(self)
+
 	def pack (self):
 		return chr(self)
+
+	@staticmethod
+	def unpack (data):
+		return SAFI(ord(data))
 
 	def has_label (self):
 		return self in (self.nlri_mpls,self.mpls_vpn)
 
 	def has_rd (self):
-		return self in (self.mpls_vpn,)  # technically self.flow_vpn has an RD but it is not an NLRI
+		return self in (self.mpls_vpn,)  # technically self.flow_vpn and self.vpls has an RD but it is not an NLRI
 
 	@staticmethod
 	def value (name):
@@ -100,6 +126,7 @@ class SAFI (int):
 		if name == "mpls-vpn" : return 0x80
 		if name == "flow"     : return 0x85
 		if name == "flow-vpn" : return 0x86
+		if name == "vpls"     : return 0x41
 		return None
 
 def known_families ():
@@ -115,4 +142,5 @@ def known_families ():
 	families.append((AFI(AFI.ipv6),SAFI(SAFI.mpls_vpn)))
 	families.append((AFI(AFI.ipv6),SAFI(SAFI.flow_ip)))
 	families.append((AFI(AFI.ipv6),SAFI(SAFI.flow_vpn)))
+	families.append((AFI(AFI.l2vpn),SAFI(SAFI.vpls)))
 	return families

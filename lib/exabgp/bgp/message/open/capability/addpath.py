@@ -7,10 +7,16 @@ Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 """
 
 from struct import pack
+from exabgp.protocol.family import AFI
+from exabgp.protocol.family import SAFI
+from exabgp.bgp.message.open.capability import Capability
 
-# =================================================================== AddPath
+# ====================================================================== AddPath
+#
 
-class AddPath (dict):
+class AddPath (Capability,dict):
+	ID = Capability.ID.ADD_PATH
+
 	string = {
 		0 : 'disabled',
 		1 : 'receive',
@@ -28,9 +34,26 @@ class AddPath (dict):
 	def __str__ (self):
 		return 'AddPath(' + ','.join(["%s %s %s" % (self.string[self[aafi]],xafi,xsafi) for (aafi,xafi,xsafi) in [((afi,safi),str(afi),str(safi)) for (afi,safi) in self]]) + ')'
 
+	def json (self):
+		families = ','.join('"%s/%s": "%s"' % (xafi,xsafi,self.string[self[aafi]]) for (aafi,xafi,xsafi) in (((afi,safi),str(afi),str(safi)) for (afi,safi) in self))
+		return '{ "name": "addpath"%s%s }' % (', ' if families else '', families)
+
 	def extract (self):
 		rs = []
 		for v in self:
 			if self[v]:
 				rs.append(v[0].pack() +v[1].pack() + pack('!B',self[v]))
 		return rs
+
+	@staticmethod
+	def unpack (capability,instance,data):
+		# XXX: FIXME: should check that we have not yet seen the capability
+		while data:
+			afi = AFI.unpack(data[:2])
+			safi = SAFI.unpack(data[2])
+			sr = ord(data[3])
+			instance.add_path(afi,safi,sr)
+			data = data[4:]
+		return instance
+
+AddPath.register_capability()

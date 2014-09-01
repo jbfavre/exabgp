@@ -9,4 +9,10 @@ Copyright (c) 2009-2012 Exa Networks. All rights reserved.
 import errno
 
 def errstr (e):
-	return '[errno %s], %s' % (errno.errorcode[e.args[0]],str(e))
+	try:
+		code = e.args[0] if e.args else e.errno
+		return '[Errno %s] %s' % (errno.errorcode.get(code,str(code)),str(e))
+	except KeyError:
+		return '[Errno unknown (key)] %s' % str(e)
+	except AttributeError:
+		return '[Errno unknown (attr)] %s' % str(e)

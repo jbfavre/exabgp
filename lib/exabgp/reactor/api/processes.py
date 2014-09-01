@@ -13,10 +13,14 @@ import select
 import fcntl
 
 from exabgp.util.errstr import errstr
+from exabgp.reactor.network.error import error
 
-from exabgp.reactor.api.encoding import Text,JSON
 from exabgp.configuration.file import formated
+from exabgp.reactor.api.encoding import Text
+from exabgp.reactor.api.encoding import JSON
+from exabgp.bgp.message import Message
 from exabgp.logger import Logger
+
 
 class ProcessError (Exception):
 	pass
@@ -33,11 +37,25 @@ class Processes (object):
 	respawn_number = 5
 	respawn_timemask = 0xFFFFFF - pow(2,6) + 1  # '0b111111111111111111000000' (around a minute, 63 seconds)
 
+	_dispatch = {}
+
+	# names = {
+	# 	Message.ID.NOTIFICATION  : 'neighbor-changes',
+	# 	Message.ID.OPEN          : 'receive-opens',
+	# 	Message.ID.KEEPALIVE     : 'receive-keepalives',
+	# 	Message.ID.UPDATE        : 'receive-updates',
+	# 	Message.ID.ROUTE_REFRESH : 'receive-refresh',
+	# 	Message.ID.OPERATIONAL   : 'receive-operational',
+	# }
+
 	def __init__ (self,reactor):
 		self.logger = Logger()
 		self.reactor = reactor
 		self.clean()
 		self.silence = False
+
+		from exabgp.configuration.environment import environment
+		self.highres = environment.settings().api.highres
 
 	def clean (self):
 		self._process = {}
@@ -49,7 +67,11 @@ class Processes (object):
 
 	def _terminate (self,process):
 		self.logger.processes("Terminating process %s" % process)
-		self._process[process].terminate()
+		try:
+			self._process[process].terminate()
+		except OSError:
+			# the process is most likely already dead
+			pass
 		self._process[process].wait()
 		del self._process[process]
 
@@ -87,7 +109,7 @@ class Processes (object):
 			run = self.reactor.configuration.process[process].get('run','')
 			if run:
 				api = self.reactor.configuration.process[process]['encoder']
-				self._api_encoder[process] = JSON('3.3.2') if api == 'json' else Text('3.3.2')
+				self._api_encoder[process] = JSON('3.4.0',self.highres) if api == 'json' else Text('3.3.2')
 
 				self._process[process] = subprocess.Popen(run,
 					stdin=subprocess.PIPE,
@@ -147,30 +169,46 @@ class Processes (object):
 		for process in list(self._process):
 			try:
 				proc = self._process[process]
+				# proc.poll returns None if the process is still fine
+				# -[signal], like -15, if the process was terminated
+				if proc.poll() is not None and self.reactor.respawn:
+					raise ValueError('child died')
 				r,_,_ = select.select([proc.stdout,],[],[],0)
 				if r:
 					try:
-						for line in proc.stdout:
-							line = line.rstrip()
-							if line:
-								self.logger.processes("Command from process %s : %s " % (process,line))
-								yield (process,formated(line))
-							else:
-								self.logger.processes("The process died, trying to respawn it")
-								self._terminate(process)
-								self._start(process)
-								break
+						line = proc.stdout.next().rstrip()
+						if line:
+							self.logger.processes("Command from process %s : %s " % (process,line))
+							yield (process,formated(line))
+						else:
+							self.logger.processes("The process died, trying to respawn it")
+							self._terminate(process)
+							self._start(process)
+							break
 					except IOError,e:
-						if e.errno == errno.EINTR:  # call interrupted
-							pass  # we most likely have data, we will try to read them a the next loop iteration
-						elif e.errno != errno.EAGAIN:  # no more data
+						if not e.errno or e.errno in error.fatal:
+							# if the program exists we can get an IOError with errno code zero !
+							self.logger.processes("Issue with the process' PIPE, terminating it and restarting it")
+							self._terminate(process)
+							self._start(process)
+						elif e.errno in error.block:
+							# we often see errno.EINTR: call interrupted and
+							# we most likely have data, we will try to read them a the next loop iteration
+							pass
+						else:
 							self.logger.processes("unexpected errno received from forked process (%s)" % errstr(e))
+					except StopIteration:
+						pass
 			except (subprocess.CalledProcessError,OSError,ValueError):
 				self.logger.processes("Issue with the process, terminating it and restarting it")
 				self._terminate(process)
 				self._start(process)
 
-	def write (self,process,string):
+	def write (self,process,string,peer=None):
+		if peer:
+			self.increase(peer)
+
+		# XXX: FIXME: This is potentially blocking
 		while True:
 			try:
 				self._process[process].stdin.write('%s\n' % string)
@@ -194,7 +232,8 @@ class Processes (object):
 
 		return True
 
-	def _notify (self,neighbor,event):
+	def _notify (self,peer,event):
+		neighbor = peer.neighbor.peer_address
 		for process in self._neighbor_process.get(neighbor,[]):
 			if process in self._process:
 				yield process
@@ -202,42 +241,89 @@ class Processes (object):
 			if process in self._process:
 				yield process
 
-	def up (self,neighbor):
+	def reset (self,peer):
 		if self.silence: return
-		for process in self._notify(neighbor,'neighbor-changes'):
-			self.write(process,self._api_encoder[process].up(neighbor))
+		for process in self._notify(peer,'*'):
+			data = self._api_encoder[process].reset(peer)
+			if data:
+				self.write(process,data,peer)
 
-	def connected (self,neighbor):
+	def increase (self,peer):
 		if self.silence: return
-		for process in self._notify(neighbor,'neighbor-changes'):
-			self.write(process,self._api_encoder[process].connected(neighbor))
+		for process in self._notify(peer,'*'):
+			data = self._api_encoder[process].increase(peer)
+			if data:
+				self.write(process,data,peer)
 
-	def down (self,neighbor,reason=''):
+	def up (self,peer):
 		if self.silence: return
-		for process in self._notify(neighbor,'neighbor-changes'):
-			self.write(process,self._api_encoder[process].down(neighbor))
+		for process in self._notify(peer,'neighbor-changes'):
+			self.write(process,self._api_encoder[process].up(peer),peer)
 
-	def receive (self,neighbor,category,header,body):
+	def connected (self,peer):
 		if self.silence: return
-		for process in self._notify(neighbor,'receive-packets'):
-			self.write(process,self._api_encoder[process].receive(neighbor,category,header,body))
+		for process in self._notify(peer,'neighbor-changes'):
+			self.write(process,self._api_encoder[process].connected(peer),peer)
 
-	def send (self,neighbor,category,header,body):
+	def down (self,peer,reason):
 		if self.silence: return
-		for process in self._notify(neighbor,'send-packets'):
-			self.write(process,self._api_encoder[process].send(neighbor,category,header,body))
+		for process in self._notify(peer,'neighbor-changes'):
+			self.write(self._api_encoder[process].down(peer,reason),peer,process)
 
-	def update (self,neighbor,update):
+	def receive (self,peer,category,header,body):
 		if self.silence: return
-		for process in self._notify(neighbor,'receive-routes'):
-			self.write(process,self._api_encoder[process].update(neighbor,update))
+		for process in self._notify(peer,'receive-packets'):
+			self.write(header,body),peer,process,self._api_encoder[process].receive(peer,category)
 
-	def refresh (self,neighbor,refresh):
+	def send (self,peer,category,header,body):
 		if self.silence: return
-		for process in self._notify(neighbor,'receive-routes'):
-			self.write(process,self._api_encoder[process].refresh(neighbor,refresh))
+		for process in self._notify(peer,'send-packets'):
+			self.write(header,body),peer,process,self._api_encoder[process].send(peer,category)
 
-	def operational (self,neighbor,what,operational):
+	def notification (self,peer,code,subcode,data):
 		if self.silence: return
-		for process in self._notify(neighbor,'receive-operational'):
-			self.write(process,self._api_encoder[process].operational(neighbor,what,operational))
+		for process in self._notify(peer,'neighbor-changes'):
+			self.write(subcode,data),peer,process,self._api_encoder[process].notification(peer,code)
+
+	def message (self,message_id,peer,message,header,*body):
+		self._dispatch[message_id](self,peer,message,header,*body)
+
+	# registering message functions
+
+	def register_process (message_id,storage):
+		def closure (f):
+			def wrap (*args):
+				f(*args)
+			storage[message_id] = wrap
+			return wrap
+		return closure
+
+	@register_process(Message.ID.OPEN,_dispatch)
+	def _open (self,peer,open_msg,header,body,direction='received'):
+		if self.silence: return
+		for process in self._notify(peer,'receive-opens'):
+			self.write(header,body),peer,process,self._api_encoder[process].open(peer,direction,open_msg)
+
+	@register_process(Message.ID.KEEPALIVE,_dispatch)
+	def _keepalive (self,peer,category,header,body):
+		if self.silence: return
+		for process in self._notify(peer,'receive-keepalives'):
+			self.write(header,body),peer,process,self._api_encoder[process].keepalive(peer)
+
+	@register_process(Message.ID.UPDATE,_dispatch)
+	def _update (self,peer,update,header,body):
+		if self.silence: return
+		for process in self._notify(peer,'receive-updates'):
+			self.write(header,body),peer,process,self._api_encoder[process].update(peer,update)
+
+	@register_process(Message.ID.ROUTE_REFRESH,_dispatch)
+	def _refresh (self,peer,refresh,header,body):
+		if self.silence: return
+		for process in self._notify(peer,'receive-refresh'):
+			self.write(header,body),peer,process,self._api_encoder[process].refresh(peer,refresh)
+
+	@register_process(Message.ID.OPERATIONAL,_dispatch)
+	def _operational (self,peer,operational,header,body):
+		if self.silence: return
+		for process in self._notify(peer,'receive-operational'):
+			self.write(header,body),peer,process,self._api_encoder[process].operational(peer,operational.category,operational)

@@ -6,17 +6,29 @@ Created by Thomas Mangin on 2009-11-05.
 Copyright (c) 2009-2013 Exa Networks. All rights reserved.
 """
 
-from exabgp.bgp.message.update.attribute.id import AttributeID
-from exabgp.bgp.message.update.attribute import Flag,Attribute
+from struct import unpack
 
-# =================================================================== MP NLRI (14)
+from exabgp.protocol.family import AFI
+from exabgp.protocol.family import SAFI
+from exabgp.protocol.ip.address import Address
 
-class MPURNLRI (Attribute):
-	FLAG = Flag.OPTIONAL
-	ID = AttributeID.MP_UNREACH_NLRI
+from exabgp.bgp.message import IN
+from exabgp.bgp.message.update.attribute.attribute import Attribute
+from exabgp.bgp.message.update.nlri.nlri import NLRI
+
+from exabgp.bgp.message.notification import Notify
+
+# ================================================================= MP NLRI (14)
+
+class MPURNLRI (Attribute,Address):
+	FLAG = Attribute.Flag.OPTIONAL
+	ID = Attribute.ID.MP_UNREACH_NLRI
 	MULTIPLE = True
 
-	def __init__ (self,nlris):
+	__slots__ = ['nlris']
+
+	def __init__ (self,afi,safi,nlris):
+		Address.__init__(self,afi,safi)
 		self.nlris = nlris
 
 	def packed_attributes (self,addpath):
@@ -37,4 +49,31 @@ class MPURNLRI (Attribute):
 		return len(self.pack())
 
 	def __str__ (self):
-		return "MP_UNREACH_NLRI %d NLRI(s)" % len(self.nlris)
+		return "MP_UNREACH_NLRI for %s %s with %d NLRI(s)" % (self.afi,self.safi,len(self.nlris))
+
+	@classmethod
+	def unpack (cls,data,negotiated):
+		nlris = []
+
+		# -- Reading AFI/SAFI
+		afi,safi = unpack('!HB',data[:3])
+		offset = 3
+		data = data[offset:]
+
+		if (afi,safi) not in negotiated.families:
+			raise Notify(3,0,'presented a non-negotiated family %s %s' % (AFI(afi),SAFI(safi)))
+
+		# Is the peer going to send us some Path Information with the route (AddPath)
+		addpath = negotiated.addpath.receive(afi,safi)
+
+		while data:
+			length,nlri = NLRI.unpack(afi,safi,data,addpath,None,IN.withdrawn)
+			nlris.append(nlri)
+			data = data[length:]
+			#logger.parser(LazyFormat("parsed withdraw mp nlri %s payload " % nlri,od,data[:length]))
+
+		return cls(afi,safi,nlris)
+
+MPURNLRI.register_attribute()
+
+EMPTY_MPURNLRI = MPURNLRI(AFI(AFI.undefined),SAFI(SAFI.undefined),[])
