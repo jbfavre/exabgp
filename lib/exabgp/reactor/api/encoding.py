@@ -16,37 +16,37 @@ from exabgp.bgp.message import IN
 
 class APIOptions (dict):
 	def receive_parsed (self,value):
-		self['receive-parsed'] = self.get('receive-parsed',False) | value
+		self['receive-parsed'] = self.get('receive-parsed',False) or value
 
 	def receive_packets (self,value):
-		self['receive-packets']  = self.get('receive-packets',False) | value
+		self['receive-packets']  = self.get('receive-packets',False) or value
 
 	def consolidate (self,value):
-		self['consolidate'] = self.get('consolidate',False) | value
+		self['consolidate'] = self.get('consolidate',False) or value
 
 	def send_packets (self,value):
-		self['send-packets'] = self.get('send_packets',False) | value
+		self['send-packets'] = self.get('send_packets',False) or value
 
 	def neighbor_changes (self,value):
-		self['neighbor-changes'] = self.get('neighbor_changes',False) | value
+		self['neighbor-changes'] = self.get('neighbor_changes',False) or value
 
 	def receive_notifications (self,value):
-		self[Message.ID.NOTIFICATION] = self.get(Message.ID.NOTIFICATION,False) | value
+		self[Message.ID.NOTIFICATION] = self.get(Message.ID.NOTIFICATION,False) or value
 
 	def receive_opens (self,value):
-		self[Message.ID.OPEN] = self.get(Message.ID.OPEN,False) | value
+		self[Message.ID.OPEN] = self.get(Message.ID.OPEN,False) or value
 
 	def receive_keepalives (self,value):
-		self[Message.ID.KEEPALIVE] = self.get(Message.ID.KEEPALIVE,False) | value
+		self[Message.ID.KEEPALIVE] = self.get(Message.ID.KEEPALIVE,False) or value
 
 	def receive_updates (self,value):
-		self[Message.ID.UPDATE] = self.get(Message.ID.UPDATE,False) | value
+		self[Message.ID.UPDATE] = self.get(Message.ID.UPDATE,False) or value
 
 	def receive_refresh (self,value):
-		self[Message.ID.ROUTE_REFRESH] = self.get(Message.ID.ROUTE_REFRESH,False) | value
+		self[Message.ID.ROUTE_REFRESH] = self.get(Message.ID.ROUTE_REFRESH,False) or value
 
 	def receive_operational (self,value):
-		self[Message.ID.OPERATIONAL] = self.get(Message.ID.OPERATIONAL,False) | value
+		self[Message.ID.OPERATIONAL] = self.get(Message.ID.OPERATIONAL,False) or value
 
 	def __missing__ (self,key):
 		return False
@@ -168,13 +168,14 @@ class JSON (object):
 		self.time = nop if highres else int
 
 	def reset (self,peer):
-		self._counter[peer.neighbor.peer_address] = 1
+		self._counter[peer.neighbor.peer_address] = 0
 
 	def increase (self,peer):
-		self._counter[peer.neighbor.peer_address] += 1
+		address = peer.neighbor.peer_address
+		self._counter[address] = self._counter.get(address,0) + 1
 
 	def count (self,peer):
-		return self._counter.get(peer.neighbor.peer_address,1)
+		return self._counter.get(peer.neighbor.peer_address,0)
 
 	def _string (self,_):
 		return '%s' % _ if issubclass(_.__class__,int) or issubclass(_.__class__,long) or ('{' in str(_)) else '"%s"' % _
@@ -340,16 +341,16 @@ class JSON (object):
 					refresh.afi,refresh.safi,refresh.reserved
 				)
 			)
-		,header,body,peer.neighbor.identificator(),self.count(peer),state='refresh')
+		,header,body,peer.neighbor.identificator(),self.count(peer),message_type='refresh')
 
 	def bmp (self,bmp,update):
-		return self._header(self._bmp(bmp,self._update(update)),'','',state='bmp')
+		return self._header(self._bmp(bmp,self._update(update)),'','',message_type='bmp')
 
 	def _operational_advisory (self,peer,operational,header,body):
 		return self._header(
 			self._neighbor(
 				peer,
-				'"operational": { "name": "%s", "afi": "%s", "safi": "%s", "advisory": "%s"' % (
+				'"operational": { "name": "%s", "afi": "%s", "safi": "%s", "advisory": "%s" }' % (
 					operational.name,operational.afi,operational.safi,operational.data
 				)
 			)
@@ -359,7 +360,7 @@ class JSON (object):
 		return self._header(
 			self._neighbor(
 				peer,
-				'"operational": { "name": "%s", "afi": "%s", "safi": "%s"' % (
+				'"operational": { "name": "%s", "afi": "%s", "safi": "%s" }' % (
 					operational.name,operational.afi,operational.safi
 				)
 			)
@@ -369,7 +370,7 @@ class JSON (object):
 		return self._header(
 			self._neighbor(
 				peer,
-				'"operational": { "name": "%s", "afi": "%s", "safi": "%s", "router-id": "%s", "sequence": %d, "counter": %d' % (
+				'"operational": { "name": "%s", "afi": "%s", "safi": "%s", "router-id": "%s", "sequence": %d, "counter": %d }' % (
 					operational.name,operational.afi,operational.safi,operational.routerid,operational.sequence,operational.counter
 				)
 			)

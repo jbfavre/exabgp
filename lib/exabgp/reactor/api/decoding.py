@@ -35,6 +35,8 @@ class Text (Configuration):
 
 	def parse_api_route (self,command,peers,action):
 		tokens = formated(command).split(' ')[1:]
+		if len(tokens) == 2 and action == 'withdraw' and 'next-hop' not in tokens:
+			tokens.extend(['next-hop','0.0.0.0'])
 		if len(tokens) < 4:
 			return False
 		if tokens[0] != 'route':
@@ -215,7 +217,7 @@ class Decoder (object):
 		return closure
 
 	def parse_command (self,reactor,service,command):
-		for registered in self._dispatch:
+		for registered in sorted(self._dispatch, reverse=True):
 			if registered in command:
 				return self._dispatch[registered](self,reactor,service,command)
 		self.logger.reactor("Command from process not understood : %s" % command,'warning')
@@ -306,59 +308,59 @@ class Decoder (object):
 
 	@register_command('show neighbor',_dispatch,_order)
 	def _show_neighbor (self,reactor,service,command):
-		def _callback (self):
+		def _callback ():
 			for key in reactor.configuration.neighbor.keys():
 				neighbor = reactor.configuration.neighbor[key]
 				for line in str(neighbor).split('\n'):
 					reactor.answer(service,line)
 					yield True
 
-		reactor.plan(_callback(self))
+		reactor.plan(_callback())
 		return True
 
 	@register_command('show neighbors',_dispatch,_order)
 	def _show_neighbors (self,reactor,service,command):
-		def _callback (self):
+		def _callback ():
 			for key in reactor.configuration.neighbor.keys():
 				neighbor = reactor.configuration.neighbor[key]
 				for line in str(neighbor).split('\n'):
 					reactor.answer(service,line)
 					yield True
 
-		reactor.plan(_callback(self))
+		reactor.plan(_callback())
 		return True
 
 	# show route(s)
 
 	@register_command('show routes',_dispatch,_order)
 	def _show_routes (self,reactor,service,command):
-		def _callback (self):
+		def _callback ():
 			for key in reactor.configuration.neighbor.keys():
 				neighbor = reactor.configuration.neighbor[key]
 				for change in list(neighbor.rib.outgoing.sent_changes()):
 					reactor.answer(service,'neighbor %s %s' % (neighbor.local_address,str(change.nlri)))
 					yield True
 
-		reactor.plan(_callback(self))
+		reactor.plan(_callback())
 		return True
 
 	@register_command('show routes extensive',_dispatch,_order)
 	def _show_routes_extensive (self,reactor,service,command):
-		def _callback (self):
+		def _callback ():
 			for key in reactor.configuration.neighbor.keys():
 				neighbor = reactor.configuration.neighbor[key]
 				for change in list(neighbor.rib.outgoing.sent_changes()):
 					reactor.answer(service,'neighbor %s %s' % (neighbor.name(),change.extensive()))
 					yield True
 
-		reactor.plan(_callback(self))
+		reactor.plan(_callback())
 		return True
 
 	# watchdogs
 
 	@register_command('announce watchdog',_dispatch,_order)
 	def _announce_watchdog (self,reactor,service,command):
-		def _callback (self,name):
+		def _callback (name):
 			for neighbor in reactor.configuration.neighbor:
 				reactor.configuration.neighbor[neighbor].rib.outgoing.announce_watchdog(name)
 				yield False
@@ -368,13 +370,13 @@ class Decoder (object):
 			name = command.split(' ')[2]
 		except IndexError:
 			name = service
-		reactor.plan(_callback(self,name))
+		reactor.plan(_callback(name))
 		return True
 
 
 	@register_command('withdraw watchdog',_dispatch,_order)
 	def _withdraw_watchdog (self,reactor,service,command):
-		def _callback (self,name):
+		def _callback (name):
 			for neighbor in reactor.configuration.neighbor:
 				reactor.configuration.neighbor[neighbor].rib.outgoing.withdraw_watchdog(name)
 				yield False
@@ -383,7 +385,7 @@ class Decoder (object):
 			name = command.split(' ')[2]
 		except IndexError:
 			name = service
-		reactor.plan(_callback(self,name))
+		reactor.plan(_callback(name))
 		return True
 
 	# flush routes
@@ -398,7 +400,7 @@ class Decoder (object):
 		try:
 			descriptions,command = Decoder.extract_neighbors(command)
 			peers = reactor.match_neighbors(descriptions)
-			if peers == []:
+			if not peers:
 				self.logger.reactor('no neighbor matching the command : %s' % command,'warning')
 				return False
 			reactor.plan(_callback(self,peers))
@@ -429,7 +431,7 @@ class Decoder (object):
 		try:
 			descriptions,command = Decoder.extract_neighbors(command)
 			peers = reactor.match_neighbors(descriptions)
-			if peers == []:
+			if not peers:
 				self.logger.reactor('no neighbor matching the command : %s' % command,'warning')
 				return False
 			reactor.plan(_callback(self,command,reactor.nexthops(peers)))
@@ -459,7 +461,7 @@ class Decoder (object):
 		try:
 			descriptions,command = Decoder.extract_neighbors(command)
 			peers = reactor.match_neighbors(descriptions)
-			if peers == []:
+			if not peers:
 				self.logger.reactor('no neighbor matching the command : %s' % command,'warning')
 				return False
 			reactor.plan(_callback(self,command,reactor.nexthops(peers)))
@@ -490,7 +492,7 @@ class Decoder (object):
 		try:
 			descriptions,command = Decoder.extract_neighbors(command)
 			peers = reactor.match_neighbors(descriptions)
-			if peers == []:
+			if not peers:
 				self.logger.reactor('no neighbor matching the command : %s' % command,'warning')
 				return False
 			reactor.plan(_callback(self,command,reactor.nexthops(peers)))
@@ -520,7 +522,7 @@ class Decoder (object):
 		try:
 			descriptions,command = Decoder.extract_neighbors(command)
 			peers = reactor.match_neighbors(descriptions)
-			if peers == []:
+			if not peers:
 				self.logger.reactor('no neighbor matching the command : %s' % command,'warning')
 				return False
 			reactor.plan(_callback(self,command,reactor.nexthops(peers)))
@@ -549,7 +551,7 @@ class Decoder (object):
 		try:
 			descriptions,command = Decoder.extract_neighbors(command)
 			peers = reactor.match_neighbors(descriptions)
-			if peers == []:
+			if not peers:
 				self.logger.reactor('no neighbor matching the command : %s' % command,'warning')
 				return False
 			reactor.plan(_callback(self,command,reactor.nexthops(peers)))
@@ -579,7 +581,7 @@ class Decoder (object):
 		try:
 			descriptions,command = Decoder.extract_neighbors(command)
 			peers = reactor.match_neighbors(descriptions)
-			if peers == []:
+			if not peers:
 				self.logger.reactor('no neighbor matching the command : %s' % command,'warning')
 				return False
 			reactor.plan(_callback(self,command,reactor.nexthops(peers)))
@@ -608,7 +610,7 @@ class Decoder (object):
 		try:
 			descriptions,command = Decoder.extract_neighbors(command)
 			peers = reactor.match_neighbors(descriptions)
-			if peers == []:
+			if not peers:
 				self.logger.reactor('no neighbor matching the command : %s' % command,'warning')
 				return False
 			reactor.plan(_callback(self,command,peers))
@@ -639,7 +641,7 @@ class Decoder (object):
 		try:
 			descriptions,command = Decoder.extract_neighbors(command)
 			peers = reactor.match_neighbors(descriptions)
-			if peers == []:
+			if not peers:
 				self.logger.reactor('no neighbor matching the command : %s' % command,'warning')
 				return False
 			reactor.plan(_callback(self,command,peers))
@@ -667,7 +669,7 @@ class Decoder (object):
 		try:
 			descriptions,command = Decoder.extract_neighbors(command)
 			peers = reactor.match_neighbors(descriptions)
-			if peers == []:
+			if not peers:
 				self.logger.reactor('no neighbor matching the command : %s' % command,'warning')
 				return False
 			reactor.plan(_callback(self,command,peers))
@@ -698,7 +700,7 @@ class Decoder (object):
 		try:
 			descriptions,command = Decoder.extract_neighbors(command)
 			peers = reactor.match_neighbors(descriptions)
-			if peers == []:
+			if not peers:
 				self.logger.reactor('no neighbor matching the command : %s' % command,'warning')
 				return False
 			reactor.plan(_callback(self,command,peers))

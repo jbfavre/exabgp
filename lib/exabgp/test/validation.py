@@ -1,10 +1,10 @@
 # encoding: utf-8
-'''
+"""
 validation.py
 
 Created by Thomas Mangin on 2013-03-18.
 Copyright (c) 2009-2013 Exa Networks. All rights reserved.
-'''
+"""
 
 __all__ = ["validation", "ValidationError"]
 
@@ -205,8 +205,7 @@ def _reference (root,references,json,location):
 		for k in add:
 			if k in valid:
 				raise ValidationError(location, "duplicate reference in " % ', '.join(references))
-
-				return False
+				# return False
 		valid.extend(add)
 
 	for option in jsn:
@@ -216,7 +215,7 @@ def _reference (root,references,json,location):
 
 	return True
 
-def _validate (root,json,definition,location=[]):
+def _validate (root,json,definition,location=()):
 	kind,presence,references,contextual = definition
 
 	# ignore missing optional elements

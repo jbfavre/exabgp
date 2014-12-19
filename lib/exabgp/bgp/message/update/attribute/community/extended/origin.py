@@ -18,7 +18,7 @@ from exabgp.bgp.message.update.attribute.community.extended import ExtendedCommu
 # RFC 4360 / RFC 7153
 
 class Origin (ExtendedCommunity):
-	COMMUNITY_SUBTYPE = 0x01
+	COMMUNITY_SUBTYPE = 0x03
 
 	@property
 	def la (self):
@@ -79,14 +79,12 @@ class OriginIPASN (Origin):
 OriginIPASN.register_extended()
 
 
-# ======================================================== OriginASN4Number
+# ============================================================= OriginASN4Number
 # RFC 4360 / RFC 7153
 
 class OriginASN4Number (Origin):
 	COMMUNITY_TYPE = 0x02
 	LIMIT=6
-
-	__slots__ = ['asn','ip']
 
 	def __init__ (self,asn,number,transitive,community=None):
 		self.asn = asn
@@ -94,7 +92,7 @@ class OriginASN4Number (Origin):
 		Origin.__init__(self,community if community else pack('!BBLH',self.COMMUNITY_TYPE|0x40 if transitive else self.COMMUNITY_TYPE,0x02,asn,number))
 
 	def __str__ (self):
-		return "origin:%s:%s" % (self.asn, self.number)
+		return "origin:%sL:%s" % (self.asn, self.number)
 
 	@staticmethod
 	def unpack (data):

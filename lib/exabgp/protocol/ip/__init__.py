@@ -133,7 +133,7 @@ class IP (object):
 class _NoIP (object):
 	packed = ''
 
-	def pack (data,negotiated=None):
+	def pack (self,data,negotiated=None):
 		return ''
 
 	def __str__ (self):
@@ -151,7 +151,7 @@ class IPv4 (IP):
 	__slots__ = []
 
 	def __init__ (self,ip,packed=None):
-		self.init(ip,packed if packed else socket.inet_pton(socket.AF_INET,ip))
+		self.init(ip,packed if packed else IP.pton(ip))
 
 	def __len__ (self):
 		return 4

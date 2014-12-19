@@ -74,22 +74,69 @@ class Attributes (dict):
 	previous = ''
 
 	representation = {
-		#	key:  (how, default, name, presentation),
-		Attribute.ID.ORIGIN             : ('string',  '', 'origin', '%s'),
-		Attribute.ID.AS_PATH            : ('multiple','', ('as-path','as-set'), '%s'),
-		Attribute.ID.NEXT_HOP           : ('string',  '', 'next-hop', '%s'),
-		Attribute.ID.MED                : ('integer', '', 'med', '%s'),
-		Attribute.ID.LOCAL_PREF         : ('integer', '', 'local-preference', '%s'),
-		Attribute.ID.ATOMIC_AGGREGATE   : ('boolean', '', 'atomic-aggregate', '%s'),
-		Attribute.ID.AGGREGATOR         : ('string',  '', 'aggregator', '( %s )'),
-		Attribute.ID.AS4_AGGREGATOR     : ('string',  '', 'aggregator', '( %s )'),
-		Attribute.ID.COMMUNITY          : ('list',    '', 'community', '%s'),
-		Attribute.ID.ORIGINATOR_ID      : ('inet',    '', 'originator-id', '%s'),
-		Attribute.ID.CLUSTER_LIST       : ('list',    '', 'cluster-list', '%s'),
-		Attribute.ID.EXTENDED_COMMUNITY : ('list',    '', 'extended-community', '%s'),
-		Attribute.ID.PMSI_TUNNEL        : ('string',  '', 'pmsi', '%s'),
-		Attribute.ID.AIGP               : ('integer', '', 'aigp', '%s'),
+		#	key:  (how, default, name, text_presentation, json_presentation),
+		Attribute.ID.ORIGIN             : ('string',  '', 'origin',             '%s',     '%s'),
+		Attribute.ID.AS_PATH            : ('multiple','', ('as-path','as-set','confederation-path','confederation-set'), '%s',     '%s'),
+		Attribute.ID.NEXT_HOP           : ('string',  '', 'next-hop',           '%s',     '%s'),
+		Attribute.ID.MED                : ('integer', '', 'med',                '%s',     '%s'),
+		Attribute.ID.LOCAL_PREF         : ('integer', '', 'local-preference',   '%s',     '%s'),
+		Attribute.ID.ATOMIC_AGGREGATE   : ('boolean', '', 'atomic-aggregate',   '%s',     '%s'),
+		Attribute.ID.AGGREGATOR         : ('string',  '', 'aggregator',         '( %s )', '%s'),
+		Attribute.ID.AS4_AGGREGATOR     : ('string',  '', 'aggregator',         '( %s )', '%s'),
+		Attribute.ID.COMMUNITY          : ('list',    '', 'community',          '%s',     '%s'),
+		Attribute.ID.ORIGINATOR_ID      : ('inet',    '', 'originator-id',      '%s',     '%s'),
+		Attribute.ID.CLUSTER_LIST       : ('list',    '', 'cluster-list',       '%s',     '%s'),
+		Attribute.ID.EXTENDED_COMMUNITY : ('list',    '', 'extended-community', '%s',     '%s'),
+		Attribute.ID.PMSI_TUNNEL        : ('string',  '', 'pmsi',               '%s',     '%s'),
+		Attribute.ID.AIGP               : ('integer', '', 'aigp',               '%s',     '%s'),
 	}
+
+	def _generate_text (self,extra=None):
+		exclude = [Attribute.ID.INTERNAL_SPLIT, Attribute.ID.INTERNAL_WATCHDOG, Attribute.ID.INTERNAL_WITHDRAW, Attribute.ID.NEXT_HOP]
+		if extra:
+			exclude.append(extra)
+		for code in sorted(self.keys()):
+			# XXX: FIXME: really we should have a INTERNAL attribute in the classes
+			if code in exclude:
+				continue
+			if code in self.representation:
+				how, default, name, presentation, _ = self.representation[code]
+				if how == 'boolean':
+					yield ' %s' % name
+				elif how == 'list':
+					yield ' %s %s' % (name, presentation % str(self[code]))
+				elif how == 'multiple':
+					yield ' %s %s' % (name[0], presentation % str(self[code]))
+				else:
+					yield ' %s %s' % (name, presentation % str(self[code]))
+			else:
+				yield ' attribute [ 0x%02X 0x%02X %s ]' % (code,self[code].FLAG,str(self[code]))
+
+	def _generate_json (self):
+		for code in sorted(self.keys() + [Attribute.ID.ATOMIC_AGGREGATE,]):
+			# remove the next-hop from the attribute as it is define with the NLRI
+			if code in (Attribute.ID.NEXT_HOP, Attribute.ID.INTERNAL_SPLIT, Attribute.ID.INTERNAL_WATCHDOG, Attribute.ID.INTERNAL_WITHDRAW):
+				continue
+			if code in self.representation:
+				how, default, name, _, presentation = self.representation[code]
+				if how == 'boolean':
+					yield '"%s": %s' % (name, 'true' if self.has(code) else 'false')
+				elif how == 'string':
+					yield '"%s": "%s"' % (name, presentation % str(self[code]))
+				elif how == 'list':
+					yield '"%s": %s' % (name, presentation % self[code].json())
+				elif how == 'multiple':
+					for n in name:
+						value = self[code].json(n)
+						if value:
+							yield '"%s": %s' % (n, presentation % value)
+				elif how == 'inet':
+					yield '"%s": "%s"' % (name, presentation % str(self[code]))
+				# Should never be ran
+				else:
+					yield '"%s": %s' % (name, presentation % str(self[code]))
+			else:
+				yield '"attribute-0x%02X-0x%02X": "%s"' % (code,self[code].FLAG,str(self[code]))
 
 	def __init__ (self):
 		# cached representation of the object
@@ -178,59 +225,21 @@ class Attributes (dict):
 
 	def json (self):
 		if not self._json:
-			def generate (self):
-				for code in sorted(self.keys() + [Attribute.ID.ATOMIC_AGGREGATE,]):
-					# remove the next-hop from the attribute as it is define with the NLRI
-					if code in (Attribute.ID.NEXT_HOP, Attribute.ID.INTERNAL_SPLIT, Attribute.ID.INTERNAL_WATCHDOG, Attribute.ID.INTERNAL_WITHDRAW):
-						continue
-					if code in self.representation:
-						how, default, name, presentation = self.representation[code]
-						if how == 'boolean':
-							yield '"%s": %s' % (name, 'true' if self.has(code) else 'false')
-						elif how == 'string':
-							yield '"%s": "%s"' % (name, presentation % str(self[code]))
-						elif how == 'list':
-							yield '"%s": %s' % (name, presentation % self[code].json())
-						elif how == 'multiple':
-							for n in name:
-								value = self[code].json(n)
-								if value:
-									yield '"%s": %s' % (n, presentation % value)
-						elif how == 'inet':
-							yield '"%s": "%s"' % (name, presentation % str(self[code]))
-						# Should never be ran
-						else:
-							yield '"%s": %s' % (name, presentation % str(self[code]))
-					else:
-						yield '"attribute-0x%02X-0x%02X": "%s"' % (code,self[code].FLAG,str(self[code]))
-			self._json = ', '.join(generate(self))
+			self._json = ', '.join(self._generate_json())
 		return self._json
 
 	def __str__ (self):
 		if not self._str:
-			def generate (self):
-				for code in sorted(self.keys()):
-					# XXX: FIXME: really we should have a INTERNAL attribute in the classes
-					if code in (Attribute.ID.INTERNAL_SPLIT, Attribute.ID.INTERNAL_WATCHDOG, Attribute.ID.INTERNAL_WITHDRAW, Attribute.ID.NEXT_HOP):
-						continue
-					if code in self.representation:
-						how, default, name, presentation = self.representation[code]
-						if how == 'boolean':
-							yield ' %s' % name
-						elif how == 'multiple':
-							yield ' %s %s' % (name[0], presentation % str(self[code]))
-						else:
-							yield ' %s %s' % (name, presentation % str(self[code]))
-					else:
-						yield ' attribute [ 0x%02X 0x%02X %s ]' % (code,self[code].FLAG,str(self[code]))
 			# XXX: FIXME: remove this ' ' + ? should it be done by the caller ?
-			self._str = ''.join(generate(self))
+			self._str = ''.join(self._generate_text())
 		return self._str
 
 	def index (self):
 		# XXX: FIXME: something a little bit smaller memory wise ?
 		if not self._idx:
-			self._idx = '%s next-hop %s' % (str(self), str(self[Attribute.ID.NEXT_HOP])) if Attribute.ID.NEXT_HOP in self else str(self)
+			# idx = ''.join(self._generate_text(Attribute.ID.MED))
+			idx = ''.join(self._generate_text())
+			self._idx = '%s next-hop %s' % (idx, str(self[Attribute.ID.NEXT_HOP])) if Attribute.ID.NEXT_HOP in self else idx
 		return self._idx
 
 	@classmethod
@@ -299,7 +308,7 @@ class Attributes (dict):
 
 		# remove the PARTIAL bit before comparaison if the attribute is optional
 		if aid in Attribute.attributes_optional:
-			aid = aid & (~Attribute.Flag.PARTIAL & 0xFF)
+			aid &= ~Attribute.Flag.PARTIAL & 0xFF
 
 		# handle the attribute if we know it
 		if Attribute.registered(aid,flag):
@@ -338,8 +347,8 @@ class Attributes (dict):
 			self.add(cached,key)
 			return
 
-		as_seq = []
-		as_set = []
+		# as_seq = []
+		# as_set = []
 
 		len2 = len(as2path.as_seq)
 		len4 = len(as4path.as_seq)
@@ -384,20 +393,20 @@ class Attributes (dict):
 				if key == Attribute.ID.MP_REACH_NLRI:
 					continue
 
-					sval = self[key]
-					oval = other[key]
+				sval = self[key]
+				oval = other[key]
 
-					# In the case where the attribute is, for instance, a list
-					# we want to compare values independently of the order
-					if isinstance(sval, collections.Iterable):
-						if not isinstance(oval, collections.Iterable):
-							return False
-
-						sval = sorted(sval,sorter)
-						oval = set(oval,sorter)
-
-					if sval != oval:
+				# In the case where the attribute is, for instance, a list
+				# we want to compare values independently of the order
+				if isinstance(sval, collections.Iterable):
+					if not isinstance(oval, collections.Iterable):
 						return False
+
+					sval = sorted(sval,sorter)
+					oval = set(oval,sorter)
+
+				if sval != oval:
+					return False
 			return True
 		except KeyError:
 				return False

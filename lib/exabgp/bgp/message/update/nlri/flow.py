@@ -466,8 +466,8 @@ class Flow (NLRI):
 		elif l < 0x0FFF:
 			data = "%s%s" % (pack('!H',l | 0xF000),components)
 		else:
-			raise Notify("rule too big for NLRI - how to handle this - does this work ?")
-			data = "%s" % chr(0)
+			raise Notify(3,0,"rule too big for NLRI - how to handle this - does this work ?")
+			# data = "%s" % chr(0)
 
 		return data
 
@@ -550,7 +550,7 @@ class Flow (NLRI):
 
 			if decoder == 'prefix':
 				if afi == AFI.ipv4:
-					_,rd,mask,size,prefix,left = NLRI._nlri(afi,safi,bgp,action)
+					_,rd,_,mask,size,prefix,left = NLRI._nlri(afi,safi,bgp,action,False)
 					adding = klass(prefix,mask)
 					if not nlri.add(adding):
 						raise Notify(3,10,'components are incompatible (two sources, two destinations, mix ipv4/ipv6) %s' % seen)
@@ -559,7 +559,7 @@ class Flow (NLRI):
 				else:
 					byte,bgp = bgp[1],bgp[0]+bgp[2:]
 					offset = ord(byte)
-					_,rd,mask,size,prefix,left = NLRI._nlri(afi,safi,bgp,action)
+					_,rd,_,mask,size,prefix,left = NLRI._nlri(afi,safi,bgp,action,False)
 					adding = klass(prefix,mask,offset)
 					if not nlri.add(adding):
 						raise Notify(3,10,'components are incompatible (two sources, two destinations, mix ipv4/ipv6) %s' % seen)

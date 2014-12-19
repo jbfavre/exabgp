@@ -167,13 +167,10 @@ class Reactor (object):
 						self.route_update = False
 						self.route_send()
 
-					for key in self.peers.keys():
-						peer = self.peers[key]
-
 					ios = {}
 					keys = set(self.peers.keys())
 
-					while time.time() < end:
+					while start < time.time() < end:
 						for key in list(keys):
 							peer = self.peers[key]
 							action = peer.run()
@@ -416,7 +413,7 @@ class Reactor (object):
 		return True
 
 	def match_neighbors (self,descriptions):
-		"returns the sublist of peers matching the description passed, or None if no description is given"
+		"""returns the sublist of peers matching the description passed, or None if no description is given"""
 		if not descriptions:
 			return self.peers.keys()
 

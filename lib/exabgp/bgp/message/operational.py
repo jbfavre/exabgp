@@ -46,7 +46,7 @@ class Operational (Message):
 	has_routerid = False
 	is_fault = False
 
-	class ID:
+	class ID (object):
 		__slots__ = []
 
 		# ADVISE
@@ -131,7 +131,7 @@ class OperationalFamily (Operational):
 	def __init__ (self,what,afi,safi,data=''):
 		Operational.__init__(self,what)
 		self.afi = AFI(afi)
-		self.safi = SAFI(afi)
+		self.safi = SAFI(safi)
 		self.data = data
 
 	def family (self):

@@ -15,6 +15,7 @@ from exabgp.bgp.message import Message
 from exabgp.bgp.message.nop import NOP
 from exabgp.bgp.message.nop import _NOP
 from exabgp.bgp.message.open import Open
+from exabgp.bgp.message.open.capability import Capability
 from exabgp.bgp.message.open.capability import Capabilities
 from exabgp.bgp.message.open.capability.negotiated import Negotiated
 from exabgp.bgp.message.update import Update
@@ -69,7 +70,6 @@ class Protocol (object):
 	def accept (self,incoming):
 		self.connection = incoming
 
-		self.peer.reactor.processes.reset(self.peer)
 		if self.peer.neighbor.api['neighbor-changes']:
 			self.peer.reactor.processes.connected(self.peer)
 
@@ -85,7 +85,6 @@ class Protocol (object):
 			ttl = self.neighbor.ttl
 			self.connection = Outgoing(peer.afi,peer.ip,local.ip,self.port,md5,ttl)
 
-			connected = False
 			try:
 				generator = self.connection.establish()
 				while True:
@@ -93,7 +92,6 @@ class Protocol (object):
 					if not connected:
 						yield False
 						continue
-					self.peer.reactor.processes.reset(self.peer)
 					if self.peer.neighbor.api['neighbor-changes']:
 						self.peer.reactor.processes.connected(self.peer)
 					yield True
@@ -127,7 +125,7 @@ class Protocol (object):
 
 	# Read from network .......................................................
 
-	def read_message (self,comment=''):
+	def read_message (self):
 		for length,msg,header,body,notify in self.connection.reader():
 			if notify:
 				if self.neighbor.api['receive-packets']:
@@ -146,8 +144,15 @@ class Protocol (object):
 			yield _UPDATE
 			return
 
-		message = Message.unpack_message(msg,body,self.negotiated)
 		self.logger.message(self.me('<< %s' % Message.ID.name(msg)))
+		try:
+			message = Message.unpack_message(msg,body,self.negotiated)
+		except (KeyboardInterrupt,SystemExit,Notify):
+			raise
+		except Exception,e:
+			self.logger.message(self.me('Could not decode message %s' % Capability.hex(msg)))
+			self.logger.message(self.me('%s' % str(e)))
+			raise Notify(2,0,'can not decode update message %s' % Capability.hex(msg))
 
 		if message.TYPE == Notification.TYPE:
 			raise message
@@ -200,8 +205,8 @@ class Protocol (object):
 		self.logger.message(self.me('<< %s' % received_open))
 		yield received_open
 
-	def read_keepalive (self,comment=''):
-		for message in self.read_message(comment):
+	def read_keepalive (self):
+		for message in self.read_message():
 			if message.TYPE == NOP.TYPE:
 				yield message
 			else:

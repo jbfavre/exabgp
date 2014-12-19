@@ -788,6 +788,9 @@ class Configuration (object):
 		name = tokens[0] if len(tokens) >= 1 else 'conf-only-%s' % str(time.time())[-6:]
 		self.process.setdefault(name,{})['neighbor'] = scope[-1]['peer-address'] if 'peer-address' in scope[-1] else '*'
 
+		for key in ['neighbor-changes', 'receive-notifications', 'receive-opens', 'receive-keepalives', 'receive-refresh', 'receive-updates', 'receive-operational', 'receive-parsed', 'receive-packets', 'consolidate']:
+			self.process[name][key] = scope[-1].pop(key,False)
+
 		run = scope[-1].pop('process-run','')
 		if run:
 			if len(tokens) != 1:
@@ -833,7 +836,19 @@ class Configuration (object):
 		if prg[0] != '/':
 			if prg.startswith('etc/exabgp'):
 				parts = prg.split('/')
-				path = [os.environ.get('ETC','etc'),] + parts[2:]
+				etc = os.environ.get('ETC','')
+				if not etc:
+					etc = os.environ.get('PWD','')
+				if etc:
+					p = etc.split('/')
+					if p[-1] in ('etc','sbin'):
+						p = p[:-1] + ['etc']
+					else:
+						p += ['etc']
+					etc = '/'.join(p)
+				else:
+					etc = '/etc'
+				path = [etc,] + parts[1:]
 				prg = os.path.join(*path)
 			else:
 				prg = os.path.abspath(os.path.join(os.path.dirname(self._fname),prg))
@@ -1024,7 +1039,6 @@ class Configuration (object):
 			self._error = '"%s" is an invalid graceful-restart time' % ' '.join(value)
 			if self.debug: raise
 			return False
-		return True
 
 	def _set_addpath (self,scope,command,value):
 		try:
@@ -1174,21 +1188,22 @@ class Configuration (object):
 			changes = local_scope.get('announce',[])
 			messages = local_scope.get('operational',[])
 
-		for local_scope in (scope[0],scope[-1]):
-			neighbor.api.receive_packets(local_scope.get('receive-packets',False))
-			neighbor.api.send_packets(local_scope.get('send-packets',False))
+		for name in self.process.keys():
+			process = self.process[name]
+			neighbor.api.receive_packets(process.get('receive-packets',False))
+			neighbor.api.send_packets(process.get('send-packets',False))
 
-			neighbor.api.neighbor_changes(local_scope.get('neighbor-changes',False))
-			neighbor.api.consolidate(local_scope.get('consolidate',False))
+			neighbor.api.neighbor_changes(process.get('neighbor-changes',False))
+			neighbor.api.consolidate(process.get('consolidate',False))
 
-			neighbor.api.receive_parsed(local_scope.get('receive-parsed',False))
+			neighbor.api.receive_parsed(process.get('receive-parsed',False))
 
-			neighbor.api.receive_notifications(local_scope.get('receive-notifications',False))
-			neighbor.api.receive_opens(local_scope.get('receive-opens',False))
-			neighbor.api.receive_keepalives(local_scope.get('receive-keepalives',False))
-			neighbor.api.receive_updates(local_scope.get('receive-updates',False))
-			neighbor.api.receive_refresh(local_scope.get('receive-refresh',False))
-			neighbor.api.receive_operational(local_scope.get('receive-operational',False))
+			neighbor.api.receive_notifications(process.get('receive-notifications',False))
+			neighbor.api.receive_opens(process.get('receive-opens',False))
+			neighbor.api.receive_keepalives(process.get('receive-keepalives',False))
+			neighbor.api.receive_updates(process.get('receive-updates',False))
+			neighbor.api.receive_refresh(process.get('receive-refresh',False))
+			neighbor.api.receive_operational(process.get('receive-operational',False))
 
 		if not neighbor.router_id:
 			neighbor.router_id = neighbor.local_address
@@ -1439,7 +1454,6 @@ class Configuration (object):
 			self._error = '"%s" is an invalid ttl-security (1-254)' % ' '.join(value)
 			if self.debug: raise
 			return False
-		return True
 
 	#  Group Static ................
 
@@ -1482,7 +1496,7 @@ class Configuration (object):
 		# convert the IP into a integer/long
 		ip = 0
 		for c in change.nlri.packed:
-			ip = ip << 8
+			ip <<= 8
 			ip += ord(c)
 
 		afi = change.nlri.afi
@@ -1532,7 +1546,7 @@ class Configuration (object):
 				klass = MPLS
 			elif 'route-distinguisher' in tokens:
 				klass = MPLS
-			elif 'labels' in tokens:
+			elif 'label' in tokens:
 				klass = MPLS
 			else:
 				klass = Prefix
@@ -1860,7 +1874,7 @@ class Configuration (object):
 			if self.debug: raise
 			return False
 
-		scope[-1]['announce'][-1].attributes.add(Aggregator(local_as.pack(True)+local_address.pack()))
+		scope[-1]['announce'][-1].attributes.add(Aggregator(local_as,local_address))
 		return True
 
 	def _route_path_information (self,scope,tokens):
@@ -1906,7 +1920,7 @@ class Configuration (object):
 				value = unpack('!L',data)[0]
 				if value >= pow(2,32):
 					raise ValueError('invalid community %s (too large)' % data)
-					return Community.cached(pack('!L',value))
+					# return Community.cached(pack('!L',value))
 			else:
 				raise ValueError('invalid community name %s' % data)
 
@@ -1984,15 +1998,19 @@ class Configuration (object):
 		elif data.count(':'):
 			_known_community = {
 				# header and subheader
-				'target' : chr(0x00)+chr(0x02),
-				'origin' : chr(0x00)+chr(0x03),
-				'l2info' : chr(0x80)+chr(0x0A),
+				'target'  : chr(0x00)+chr(0x02),
+				'target4' : chr(0x02)+chr(0x02),
+				'origin'  : chr(0x00)+chr(0x03),
+				'origin4' : chr(0x02)+chr(0x03),
+				'l2info'  : chr(0x80)+chr(0x0A),
 			}
 
 			_size_community = {
-				'target' : 2,
-				'origin' : 2,
-				'l2info' : 4,
+				'target'  : 2,
+				'target4' : 2,
+				'origin'  : 2,
+				'origin4' : 2,
+				'l2info'  : 4,
 			}
 
 			components = data.split(':')
@@ -2025,9 +2043,15 @@ class Configuration (object):
 						return ExtendedCommunity.unpack(header+pack('!BBBBH',*[int(_) for _ in ga.split('.')]+[int(la)]),None)
 				else:
 					if command == 'target':
-						return ExtendedCommunity.unpack(header+pack('!HI',int(ga),int(la)),None)
+						if ga.upper().endswith('L'):
+							return ExtendedCommunity.unpack(_known_community['target4']+pack('!LH',int(ga[:-1]),int(la)),None)
+						else:
+							return ExtendedCommunity.unpack(header+pack('!HI',int(ga),int(la)),None)
 					if command == 'origin':
-						return ExtendedCommunity.unpack(header+pack('!IH',int(ga),int(la)),None)
+						if ga.upper().endswith('L'):
+							return ExtendedCommunity.unpack(_known_community['origin4']+pack('!LH',int(ga[:-1]),int(la)),None)
+						else:
+							return ExtendedCommunity.unpack(header+pack('!IH',int(ga),int(la)),None)
 
 			raise ValueError('invalid extended community %s' % command)
 		else:
@@ -2880,7 +2904,7 @@ class Configuration (object):
 
 		capa = Capabilities().new(n,False)
 		capa[Capability.ID.ADD_PATH] = path
-		capa[Capability.ID.MULTIPROTOCOL_EXTENSIONS] = n.families()
+		capa[Capability.ID.MULTIPROTOCOL] = n.families()
 
 		o1 = Open(4,n.local_as,str(n.local_address),capa,180)
 		o2 = Open(4,n.peer_as,str(n.peer_address),capa,180)
