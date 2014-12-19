@@ -1,3 +1,9 @@
+exabgp (3.4.5-1~bbc77+1) unstable; urgency=medium
+
+  * Imported Upstream version 3.4.5
+
+ -- Jean Baptiste Favre <jean-baptiste.favre@blablacar.com>  Fri, 19 Dec 2014 23:35:38 +0100
+
 exabgp (3.4.2-1~bbc76+1) unstable; urgency=medium
 
   * Imported Upstream version 3.4.2
